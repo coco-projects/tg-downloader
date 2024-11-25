@@ -1141,6 +1141,46 @@
             return $this->getMysqlClient()->getTable($this->pagesTableName);
         }
 
+        /**********************/
+
+        public function getAllTableStatus(): array
+        {
+            $data = [];
+
+            $data[$this->getMessageTable()->getName()] = [
+                'is_created' => $this->getMessageTable()->isTableCerated(),
+                'count'      => (int)$this->getMessageTable()->getCount(),
+            ];
+
+            $data[$this->getTypeTable()->getName()] = [
+                'is_created' => $this->getTypeTable()->isTableCerated(),
+                'count'      => (int)$this->getTypeTable()->getCount(),
+            ];
+
+            $data[$this->getFileTable()->getName()] = [
+                'is_created' => $this->getFileTable()->isTableCerated(),
+                'count'      => (int)$this->getFileTable()->getCount(),
+            ];
+
+            $data[$this->getPostTable()->getName()] = [
+                'is_created' => $this->getPostTable()->isTableCerated(),
+                'count'      => (int)$this->getPostTable()->getCount(),
+            ];
+
+            $data[$this->getAccountTable()->getName()] = [
+                'is_created' => $this->getAccountTable()->isTableCerated(),
+                'count'      => (int)$this->getAccountTable()->getCount(),
+            ];
+
+            $data[$this->getPagesTable()->getName()] = [
+                'is_created' => $this->getPagesTable()->isTableCerated(),
+                'count'      => (int)$this->getPagesTable()->getCount(),
+            ];
+
+            return $data;
+        }
+        /**********************/
+
         /*
          * ---------------------------------------------------------
          * */
