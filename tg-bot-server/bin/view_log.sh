@@ -1,0 +1,1 @@
+tail -fn 100 ../data/log.log

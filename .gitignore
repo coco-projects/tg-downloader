@@ -1,0 +1,6 @@
+/scripts/config.php
+/data/
+/vendor/
+/.build/
+/.phpstan.txt
+/nohup.out

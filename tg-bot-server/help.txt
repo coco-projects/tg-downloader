@@ -1,0 +1,56 @@
+─[0] <git:(master a186a9a) > ./telegram-bot-api --help    
+Usage: telegram-bot-api --api-id=<arg> --api-hash=<arg> [--local] [OPTION]...
+
+Telegram Bot API server. Options:
+  -h, --help                          display this help text and exit
+      --version                       display version number and exit
+      --local                         allow the Bot API server to serve local requests
+      --api-id=<arg>                  application identifier for Telegram API access, which can be obtained at https://my.telegram.org (defaults to the value of the TELEGRAM_API_ID environment variable)
+      --api-hash=<arg>                application identifier hash for Telegram API access, which can be obtained at https://my.telegram.org (defaults to the value of the TELEGRAM_API_HASH environment variable)
+  -p, --http-port=<arg>               HTTP listening port (default is 8081)
+  -s, --http-stat-port=<arg>          HTTP statistics port
+  -d, --dir=<arg>                     server working directory
+  -t, --temp-dir=<arg>                directory for storing HTTP server temporary files
+      --filter=<arg>                  "<remainder>/<modulo>". Allow only bots with 'bot_user_id % modulo == remainder'
+      --max-webhook-connections=<arg> default value of the maximum webhook connections per bot
+      --http-ip-address=<arg>         local IP address, HTTP connections to which will be accepted. By default, connections to any local IPv4 address are accepted
+      --http-stat-ip-address=<arg>    local IP address, HTTP statistics connections to which will be accepted. By default, statistics connections to any local IPv4 address are accepted
+  -l, --log=<arg>                     path to the file where the log will be written
+  -v, --verbosity=<arg>               log verbosity level
+      --memory-verbosity=<arg>        memory log verbosity level; defaults to 3
+      --log-max-file-size=<arg>       maximum size of the log file in bytes before it will be auto-rotated (default is 2000000000)
+  -u, --username=<arg>                effective user name to switch to
+  -g, --groupname=<arg>               effective group name to switch to
+  -c, --max-connections=<arg>         maximum number of open file descriptors
+      --cpu-affinity=<arg>            CPU affinity as 64-bit mask (defaults to all available CPUs)
+      --main-thread-affinity=<arg>    CPU affinity of the main thread as 64-bit mask (defaults to the value of the option --cpu-affinity)
+      --proxy=<arg>                   HTTP proxy server for outgoing webhook requests in the format http://host:port
+	  
+	  
+	  
+Usage: telegram-bot-api --api-id=<arg> --api-hash=<arg> [--local] [OPTION]...
+
+Telegram 机器人 API 服务器。选项：
+-h, --help                          显示此帮助文本并退出
+--version                       显示版本号并退出
+--local                         允许 Bot API 服务器处理本地请求
+--api-id=<arg>                  用于访问 Telegram API 的应用程序标识符，可以在 https://my.telegram.org 获取（默认为 TELEGRAM_API_ID 环境变量的值）
+--api-hash=<arg>                用于访问 Telegram API 的应用程序标识符哈希，可以在 https://my.telegram.org 获取（默认为 TELEGRAM_API_HASH 环境变量的值）
+-p, --http-port=<arg>               HTTP 监听端口（默认为 8081）
+-s, --http-stat-port=<arg>          HTTP 统计端口
+-d, --dir=<arg>                     服务器工作目录
+-t, --temp-dir=<arg>                存储 HTTP 服务器临时文件的目录
+--filter=<arg>                  "<remainder>/<modulo>"。仅允许 bot_user_id % modulo == remainder 的机器人
+--max-webhook-connections=<arg> 每个机器人的最大 webhook 连接数的默认值
+--http-ip-address=<arg>         本地 IP 地址，HTTP 连接将被接受。默认情况下，接受任何本地 IPv4 地址的连接
+--http-stat-ip-address=<arg>    本地 IP 地址，HTTP 统计连接将被接受。默认情况下，接受任何本地 IPv4 地址的连接
+-l, --log=<arg>                     日志将写入的文件路径
+-v, --verbosity=<arg>               日志详细程度级别
+--memory-verbosity=<arg>        内存日志详细程度级别；默认为 3
+--log-max-file-size=<arg>       日志文件在自动轮换之前的最大大小（以字节为单位，默认为 2000000000）
+-u, --username=<arg>                切换到的有效用户名
+-g, --groupname=<arg>               切换到的有效组名
+-c, --max-connections=<arg>         最大打开文件描述符数量
+--cpu-affinity=<arg>            CPU 亲和性，作为 64 位掩码（默认为所有可用的 CPU）
+--main-thread-affinity=<arg>    主线程的 CPU 亲和性，作为 64 位掩码（默认为 --cpu-affinity 选项的值）
+--proxy=<arg>                   用于外发 webhook 请求的 HTTP 代理服务器，格式为 http://host:port
