@@ -1,11 +1,7 @@
 <?php
 
     require '../common.php';
-    
-    exec('whoami', $output);
-echo '当前执行的用户是: ' . $output[0];
-    
-print(get_current_user());exit();
+
     echo '重启api服务器';
     echo PHP_EOL;
     $manager->restartTelegramBotApi();

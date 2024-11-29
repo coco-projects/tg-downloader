@@ -1147,34 +1147,40 @@
         {
             $data = [];
 
+            $a                                         = $this->getMessageTable()->isTableCerated();
             $data[$this->getMessageTable()->getName()] = [
-                'is_created' => $this->getMessageTable()->isTableCerated(),
-                'count'      => (int)$this->getMessageTable()->getCount(),
+                'is_created' => (int)$a,
+                'count'      => $a ? (int)$this->getMessageTable()->getCount() : 0,
             ];
 
+            $b                                      = $this->getTypeTable()->isTableCerated();
             $data[$this->getTypeTable()->getName()] = [
-                'is_created' => $this->getTypeTable()->isTableCerated(),
-                'count'      => (int)$this->getTypeTable()->getCount(),
+                'is_created' => (int)$b,
+                'count'      => $b ? (int)$this->getTypeTable()->getCount() : 0,
             ];
 
+            $c                                      = $this->getFileTable()->isTableCerated();
             $data[$this->getFileTable()->getName()] = [
-                'is_created' => $this->getFileTable()->isTableCerated(),
-                'count'      => (int)$this->getFileTable()->getCount(),
+                'is_created' => (int)$c,
+                'count'      => $c ? (int)$this->getFileTable()->getCount() : 0,
             ];
 
+            $d                                      = $this->getPostTable()->isTableCerated();
             $data[$this->getPostTable()->getName()] = [
-                'is_created' => $this->getPostTable()->isTableCerated(),
-                'count'      => (int)$this->getPostTable()->getCount(),
+                'is_created' => (int)$d,
+                'count'      => $d ? (int)$this->getPostTable()->getCount() : 0,
             ];
 
+            $e                                         = $this->getAccountTable()->isTableCerated();
             $data[$this->getAccountTable()->getName()] = [
-                'is_created' => $this->getAccountTable()->isTableCerated(),
-                'count'      => (int)$this->getAccountTable()->getCount(),
+                'is_created' => (int)$e,
+                'count'      => $e ? (int)$this->getAccountTable()->getCount() : 0,
             ];
 
+            $f                                       = $this->getPagesTable()->isTableCerated();
             $data[$this->getPagesTable()->getName()] = [
-                'is_created' => $this->getPagesTable()->isTableCerated(),
-                'count'      => (int)$this->getPagesTable()->getCount(),
+                'is_created' => (int)$f,
+                'count'      => $f ? (int)$this->getPagesTable()->getCount() : 0,
             ];
 
             return $data;
