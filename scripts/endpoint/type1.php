@@ -28,7 +28,7 @@
     {
         try
         {
-            $manager->webHookEndPoint($raw, 2);
+            $manager->webHookEndPoint($raw);
         }
         catch (\Exception $e)
         {

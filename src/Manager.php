@@ -31,9 +31,10 @@
 
     class Manager
     {
+        protected MissionManager $manager;
         protected ?Container     $container             = null;
         protected array          $tables                = [];
-        protected MissionManager $manager;
+        protected array          $typeMap               = [];
         protected ?string        $proxy                 = null;
         protected ?string        $tempJsonPath          = null;
         protected ?string        $mediaStorePath        = null;
@@ -174,57 +175,21 @@
             return $this;
         }
 
-
-        public function getTelegramApiInfo(): array
+        public function setTypeMap(array $typeMap): static
         {
-            $apiUrl   = 'http://127.0.0.1:' . $this->statisticsPort;
-            $contents = $this->getTelegramApiGuzzle()->get($apiUrl);
-            $body     = $contents->getBody()->getContents();
+            $this->typeMap = $typeMap;
 
-            $result = [];
+            return $this;
+        }
 
-            $data        = preg_split('#[\r\n]{2}#', $body);
-            $performance = array_shift($data);
-            $bots        = $data;
-
-            $performanceLines = static::parseLine($performance);
-
-            foreach ($performanceLines as $k => $v)
+        public function getTypeIdBySender($sender): int
+        {
+            if (isset($this->typeMap[$sender]))
             {
-                $t = static::parseField($v);
-                if (count($t['value']) == 1)
-                {
-                    $result['performance'][$t['key']] = $t['value'][0];
-                }
-                else
-                {
-                    $result['performance'][$t['key']] = $t['value'];
-                }
+                return $this->typeMap[$sender];
             }
 
-            foreach ($bots as $k => $v)
-            {
-                $botLines = static::parseLine($v);
-
-                $botInfo = [];
-                foreach ($botLines as $k1 => $v1)
-                {
-                    $t = static::parseField($v1);
-                    if (count($t['value']) == 1)
-                    {
-                        $botInfo[$t['key']] = $t['value'][0];
-                    }
-                    else
-                    {
-                        $botInfo[$t['key']] = $t['value'];
-                    }
-
-                }
-
-                $result['bots'][$botInfo['id']] = $botInfo;
-            }
-
-            return $result;
+            return -1;
         }
 
         /*
@@ -969,6 +934,58 @@
             return count($processes) > 0;
         }
 
+        public function getTelegramApiInfo(): array
+        {
+            $apiUrl   = 'http://127.0.0.1:' . $this->statisticsPort;
+            $contents = $this->getTelegramApiGuzzle()->get($apiUrl);
+            $body     = $contents->getBody()->getContents();
+
+            $result = [];
+
+            $data        = preg_split('#[\r\n]{2}#', $body);
+            $performance = array_shift($data);
+            $bots        = $data;
+
+            $performanceLines = static::parseLine($performance);
+
+            foreach ($performanceLines as $k => $v)
+            {
+                $t = static::parseField($v);
+                if (count($t['value']) == 1)
+                {
+                    $result['performance'][$t['key']] = $t['value'][0];
+                }
+                else
+                {
+                    $result['performance'][$t['key']] = $t['value'];
+                }
+            }
+
+            foreach ($bots as $k => $v)
+            {
+                $botLines = static::parseLine($v);
+
+                $botInfo = [];
+                foreach ($botLines as $k1 => $v1)
+                {
+                    $t = static::parseField($v1);
+                    if (count($t['value']) == 1)
+                    {
+                        $botInfo[$t['key']] = $t['value'][0];
+                    }
+                    else
+                    {
+                        $botInfo[$t['key']] = $t['value'];
+                    }
+
+                }
+
+                $result['bots'][$botInfo['id']] = $botInfo;
+            }
+
+            return $result;
+        }
+
         /*
          * ---------------------------------------------------------
          * */
@@ -1319,14 +1336,17 @@
             return $json;
         }
 
-        public function webHookEndPoint(string $message, int $typeId): void
+        public function webHookEndPoint(string $message): void
         {
             $msg = UpdateMessage::parse($message, $this->getBootId());
 
-            if ($msg->isNeededType())
+            $typeId = $this->getTypeIdBySender($msg->senderId);
+
+            if ($msg->isNeededType() && $typeId > 0)
             {
                 $msgTable = $this->getMessageTable();
-                $data     = [
+
+                $data = [
                     $msgTable->getPkField()                 => $msgTable->calcPk(),
                     $msgTable->getBotIdField()              => $msg->bootId,
                     $msgTable->getUpdateIdField()           => $msg->updateId,
@@ -1399,7 +1419,7 @@
 
         protected static function parseLine(string $data): array
         {
-            return preg_split('#[\r\n]+#', $data);
+            return preg_split('#[\r\n]+#', $data, -1, PREG_SPLIT_NO_EMPTY);
         }
 
         private function envCheck(): void
