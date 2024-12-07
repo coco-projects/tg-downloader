@@ -50,18 +50,6 @@
             "chat_source_username" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
         ];
 
-        public function setTypeIdField(string $value): static
-        {
-            $this->setFeildName('type_id', $value);
-
-            return $this;
-        }
-
-        public function getTypeIdField(): string
-        {
-            return $this->getFieldName('type_id');
-        }
-
         public function setBotIdField(string $value): static
         {
             $this->setFeildName('bot_id', $value);
@@ -134,6 +122,18 @@
             return $this->getFieldName('message_from_type');
         }
 
+        public function setTypeIdField(string $value): static
+        {
+            $this->setFeildName('type_id', $value);
+
+            return $this;
+        }
+
+        public function getTypeIdField(): string
+        {
+            return $this->getFieldName('type_id');
+        }
+
         public function setFileIdField(string $value): static
         {
             $this->setFeildName('file_id', $value);
@@ -180,18 +180,6 @@
         public function getFileNameField(): string
         {
             return $this->getFieldName('file_name');
-        }
-
-        public function setCaptionField(string $value): static
-        {
-            $this->setFeildName('caption', $value);
-
-            return $this;
-        }
-
-        public function getCaptionField(): string
-        {
-            return $this->getFieldName('caption');
         }
 
         public function setChatTypeField(string $value): static
@@ -290,6 +278,18 @@
             return $this->getFieldName('download_time');
         }
 
+        public function setTotalMediaCountField(string $value): static
+        {
+            $this->setFeildName('total_media_count', $value);
+
+            return $this;
+        }
+
+        public function getTotalMediaCountField(): string
+        {
+            return $this->getFieldName('total_media_count');
+        }
+
         public function setFileStatusField(string $value): static
         {
             $this->setFeildName('file_status', $value);
@@ -300,6 +300,18 @@
         public function getFileStatusField(): string
         {
             return $this->getFieldName('file_status');
+        }
+
+        public function setCaptionField(string $value): static
+        {
+            $this->setFeildName('caption', $value);
+
+            return $this;
+        }
+
+        public function getCaptionField(): string
+        {
+            return $this->getFieldName('caption');
         }
 
         public function setTextField(string $value): static
@@ -349,5 +361,4 @@
         {
             return $this->getFieldName('time');
         }
-
     }

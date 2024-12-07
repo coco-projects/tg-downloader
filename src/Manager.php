@@ -328,18 +328,15 @@
                      * 先获取正在下载的任务个数,限制最多只能同时下载多少个任务
                      * ---------------------------------------
                      */
-                    $downloading = $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [1])
-                        // ->fetchSql(true)
-                        ->count();
+                    $downloading = $this->getDownloadingCount();
 
                     /**
                      * ---------------------------------------
                      * 剩余待下载任务数
                      * ---------------------------------------
                      */
-                    $downloadingRemain = $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [0])
-                        // ->fetchSql(true)
-                        ->count();
+                    $downloadingRemain = $this->getDownloadingRemainCount();
+
                     $this->manager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
 
                     //如果正在下载的任务大于等于最大限制
@@ -366,9 +363,7 @@
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
                     ]))->where($msgTable->getFileStatusField(), 'in', [0])
-                        ->limit(0, $this->maxDownloading - $downloading)->order($msgTable->getPkField())
-                        // ->fetchSql(true)
-                        ->select();
+                        ->limit(0, $this->maxDownloading - $downloading)->order($msgTable->getPkField())->select();
                     $data1 = $data1->toArray();
 
                     /*
@@ -461,6 +456,20 @@
             $this->getDownloadMediaScanner()->setMaker($this->getDownloadMediaMaker())->listen();
         }
 
+        public function getDownloadingCount(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            return $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [1])->count();
+        }
+
+        public function getDownloadingRemainCount(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            return $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [0])->count();
+        }
+
         public function stopDownloadMedia(): void
         {
             LoopTool::getIns()->stop(static::SCANNER_DOWNLOAD_MEDIA);
@@ -546,7 +555,7 @@
                         $targetPath = static::makePath($jsonInfo['result']['file_id'], $fileType) . '.' . $updateInfo[$msgTable->getExtField()];
 
                         // /var/www/6025/new/coco-tgDownloader/examples/data/mediaStore/2024-10/photos/A/AQADdrcxGxbnIFR-.jpg
-                        $target = rtrim($this->mediaStorePath) . '/' . $targetPath;
+                        $target = rtrim($this->mediaStorePath) . '/' . ltrim($targetPath);
 
                         is_dir(dirname($target)) or mkdir(dirname($target), 0777, true);
 
@@ -586,20 +595,7 @@
                         }
                         else
                         {
-
-                            $res = rename($source, $target);
-
-                            if (!$res)
-                            {
-                                $this->getToFileMoveScanner()->logError('文件 rename 失败：' . $source . '->' . $target);
-
-                                unlink($fullSourcePath);
-
-                                $msgTable->tableIns()->where($msgTable->getPkField(), '=', $id)->update([
-                                    $msgTable->getFileStatusField() => 0,
-                                ]);
-                            }
-                            else
+                            if (rename($source, $target))
                             {
                                 chmod($target, 0777);
                                 chown($target, $this->mediaOwner);
@@ -628,6 +624,17 @@
                                     $this->getToFileMoveScanner()
                                         ->logError('更新失败：' . $updateInfo[$msgTable->getPkField()] . '->' . $target);
                                 }
+                            }
+                            else
+                            {
+                                $this->getToFileMoveScanner()->logError('文件 rename 失败：' . $source . '->' . $target);
+
+                                unlink($fullSourcePath);
+
+                                $msgTable->tableIns()->where($msgTable->getPkField(), '=', $id)->update([
+                                    $msgTable->getFileStatusField() => 0,
+                                ]);
+
                             }
                         }
                     }
@@ -679,7 +686,9 @@
          * */
 
         /**
-         * 扫描状态为2，或者fileId是空的的记录，把文件path写入 file表，caption 写入post表
+         * 扫描状态为 2 的记录，根据media_group_id分组，media的个数等于redis里保存的个数说明文件都处理完了，
+         * 先把文件 path 写入 file 表
+         * 再把 caption 写入post表
          *
          * @return $this
          */
@@ -703,30 +712,51 @@
                      */
 
                     /*
-                     * getFileStatusField 为 2,或者 fileId 为空
+                     * getFileStatusField 为 2
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()->where($msgTable->getFileStatusField(), '=', 2)->limit(0, 10)
-                        ->order($msgTable->getPkField())
-//                         ->fetchSql(true)
-                        ->select();
-
+                    $data = $msgTable->tableIns()
+                        ->where($msgTable->getFileStatusField(), 'in', [2])
+                        ->limit(0, 100)->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
-                    $ids = [];
+                    $group  = [];
+                    $result = [];
 
+                    //根据media_group_id 分组
                     foreach ($data as $k => $v)
                     {
-                        $ids[] = $v[$msgTable->getPkField()];
+                        if (!isset($group[$v[$msgTable->getMediaGroupIdField()]]))
+                        {
+                            $group[$v[$msgTable->getMediaGroupIdField()]] = [];
+                        }
+                        $group[$v[$msgTable->getMediaGroupIdField()]][] = $v;
                     }
 
-                    //更新状态
-                    $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
-                        $msgTable->getFileStatusField() => 3,
-                    ]);
+                    foreach ($group as $group_id => $item)
+                    {
+                        //一共应该有几个媒体
+                        $totalMediaCount = $this->getMediaGroupCount($group_id);
 
-                    return $data;
+                        //当前查出了几个有媒体
+                        $currentHasMediaCount = 0;
+                        foreach ($item as $k => $v)
+                        {
+                            if ($v[$msgTable->getFileUniqueIdField()])
+                            {
+                                $currentHasMediaCount++;
+                            }
+                        }
+
+                        //如果相等说明一条消息中所有媒体已经下载完
+                        if ($totalMediaCount == $currentHasMediaCount)
+                        {
+                            $result[$group_id] = $item;
+                        }
+                    }
+
+                    return $result;
                 });
 
                 /*-------------------------------------------*/
@@ -739,89 +769,87 @@
                     $msgTable, $postTable, $typeTable, $fileTable
                 ) {
 
-                    foreach ($data as $k => $messageInfo)
+                    foreach ($data as $mediaGroupId => $item)
                     {
-                        $content      = '';
-                        $mediaGroupId = $messageInfo[$msgTable->getMediaGroupIdField()];
+                        $ids   = [];
+                        $files = [];
 
-                        if ($messageInfo[$msgTable->getCaptionField()])
+                        //计算出文本信息
+                        $content = '';
+                        foreach ($item as $k => $messageInfo)
                         {
-                            $content = $messageInfo[$msgTable->getCaptionField()];
-                        }
+                            if ($messageInfo[$msgTable->getCaptionField()])
+                            {
+                                $content = $messageInfo[$msgTable->getCaptionField()];
+                                break;
+                            }
 
-                        if ($messageInfo[$msgTable->getTextField()])
-                        {
-                            $content = $messageInfo[$msgTable->getTextField()];
+                            if ($messageInfo[$msgTable->getTextField()])
+                            {
+                                $content = $messageInfo[$msgTable->getTextField()];
+                                break;
+                            }
                         }
 
                         $content = trim($content);
 
-                        $maker_->getScanner()->logInfo("开始:{$mediaGroupId}------------------------------------");
-                        $maker_->getScanner()->logInfo('内容:' . preg_replace('#[\r\n]+#', ' ', $content));
-
-                        //根据 media_group_id 去post表查，看里面有没有记录
-                        $isInsertedInfo = $postTable->tableIns()
-                            ->where($postTable->getMediaGroupIdField(), '=', $mediaGroupId)
-                            ->order($postTable->getPkField(), 'asc')->find();
-
-                        //如果 post表 之前没写入过这个 media_group_id
-                        if (!$isInsertedInfo)
+                        //没有文件也没有文本，空消息
+                        if (!$content && !$messageInfo[$msgTable->getPathField()])
                         {
-                            //向 post 插入一个记录
-                            //有可能当前这个 message 不是消息组中第一个带有 caption 的消息
-                            $postId = $postTable->calcPk();
-
-                            $data = [
-                                $postTable->getPkField()           => $postId,
-                                $postTable->getTypeIdField()       => $messageInfo[$msgTable->getTypeIdField()],
-                                $postTable->getContentsField()     => $content,
-                                $postTable->getMediaGroupIdField() => $mediaGroupId,
-                                $postTable->getDateField()         => $messageInfo[$msgTable->getDateField()],
-                                $postTable->getTimeField()         => time(),
-                            ];
-
-                            $postTable->tableIns()->insert($data);
-
-                            $maker_->getScanner()->logInfo("media_group_id 第一次写入:{$mediaGroupId} - {$postId}");
+                            break;
                         }
-                        else
-                        {
-                            $maker_->getScanner()->logInfo("media_group_id 已经写入:{$mediaGroupId}");
-                            $postId = $isInsertedInfo[$postTable->getPkField()];
 
-                            //查询出这个media_group_id第一个记录，通过id更新 $content
-                            //如果写入过这个media_group_id，并且 $content 不为空，要更新写入的这个post 记录的 contents
-                            if ($content)
+                        $postId = $postTable->calcPk();
+
+                        //构造文件数组，写入文件表
+                        foreach ($item as $k => $messageInfo)
+                        {
+                            if ($messageInfo[$msgTable->getFileIdField()])
                             {
-                                $postTable->tableIns()->where($postTable->getPkField(), '=', $postId)->update([
-                                    $postTable->getContentsField() => $content,
-                                ]);
-
-                                $maker_->getScanner()
-                                    ->logInfo('media_group_id 更新内容:' . preg_replace('#[\r\n]+#', ' ', $content));
+                                $files[] = [
+                                    $fileTable->getPkField()           => $fileTable->calcPk(),
+                                    $fileTable->getPostIdField()       => $postId,
+                                    $fileTable->getPathField()         => $messageInfo[$msgTable->getPathField()],
+                                    $fileTable->getFileSizeField()     => $messageInfo[$msgTable->getFileSizeField()],
+                                    $fileTable->getFileNameField()     => $messageInfo[$msgTable->getFileNameField()],
+                                    $fileTable->getExtField()          => $messageInfo[$msgTable->getExtField()],
+                                    $fileTable->getMimeTypeField()     => $messageInfo[$msgTable->getMimeTypeField()],
+                                    $fileTable->getMediaGroupIdField() => $mediaGroupId,
+                                    $fileTable->getTimeField()         => time(),
+                                ];
                             }
+
+                            $ids[] = $messageInfo[$msgTable->getPkField()];
                         }
 
-                        //如果message 中有 file_id ，就写入file 表
-                        if ($messageInfo[$msgTable->getFileIdField()])
-                        {
-                            $data = [
-                                $fileTable->getPkField()           => $fileTable->calcPk(),
-                                $fileTable->getPostIdField()       => $postId,
-                                $fileTable->getPathField()         => $messageInfo[$msgTable->getPathField()],
-                                $fileTable->getFileSizeField()     => $messageInfo[$msgTable->getFileSizeField()],
-                                $fileTable->getFileNameField()     => $messageInfo[$msgTable->getFileNameField()],
-                                $fileTable->getExtField()          => $messageInfo[$msgTable->getExtField()],
-                                $fileTable->getMimeTypeField()     => $messageInfo[$msgTable->getMimeTypeField()],
-                                $fileTable->getMediaGroupIdField() => $mediaGroupId,
-                                $fileTable->getTimeField()         => time(),
-                            ];
+                        $content = preg_replace('#[\r\n]+#', ' ', $content);
+                        $maker_->getScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
+                        $maker_->getScanner()->logInfo(PHP_EOL);
 
-                            $fileTable->tableIns()->insert($data);
+                        if (count($files))
+                        {
+                            $fileTable->tableIns()->insertAll($files);
                             $maker_->getScanner()->logInfo('写入 file 表:' . $messageInfo[$msgTable->getPathField()]);
                         }
 
-                        $maker_->getScanner()->logInfo(PHP_EOL);
+                        //向 post 插入一个记录
+                        //有可能当前这个 message 不是消息组中第一个带有 caption 的消息
+                        $postTable->tableIns()->insert([
+                            $postTable->getPkField()           => $postId,
+                            $postTable->getTypeIdField()       => $messageInfo[$msgTable->getTypeIdField()],
+                            $postTable->getContentsField()     => $content,
+                            $postTable->getMediaGroupIdField() => $mediaGroupId,
+                            $postTable->getDateField()         => $messageInfo[$msgTable->getDateField()],
+                            $postTable->getTimeField()         => time(),
+                        ]);
+
+                        //删除redis记录的条数
+                        $this->deleteMediaGroupCount($mediaGroupId);
+
+                        //更新状态为数据已经迁移
+                        $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
+                            $msgTable->getFileStatusField() => 3,
+                        ]);
                     }
                 }));
 
@@ -1372,6 +1400,12 @@
                 ];
 
                 $msgTable->tableIns()->insert($data);
+
+                //更新每个信息有几个media图文
+                if ($data[$msgTable->getFileUniqueIdField()])
+                {
+                    $this->incMediaGroupCount($msg->mediaGroupId);
+                }
             }
         }
 
@@ -1398,10 +1432,11 @@
         protected static function makePath(string $input, string $fileType): string
         {
             $year        = date('Y');
-            $month       = date('n');
+            $month       = date('m');
+            $day         = date('d');
             $firstLetter = strtoupper(substr(md5($input), 0, 1));
 
-            return "$year-$month/$fileType/$firstLetter/" . hrtime(true);
+            return "$year-$month/$day/$fileType/$firstLetter/" . hrtime(true);
         }
 
         protected static function parseField(string $line): array
@@ -1503,6 +1538,28 @@
         protected function makeDetailPageId(string|int $pageId): string
         {
             return (string)$pageId;
+        }
+
+        protected function makeMediaGroupCountName($mediaGroupId): string
+        {
+            return 'media_group_count:' . $mediaGroupId;
+        }
+
+        protected function incMediaGroupCount($mediaGroupId): static
+        {
+            $this->getRedisClient()->incr($this->makeMediaGroupCountName($mediaGroupId));
+
+            return $this;
+        }
+
+        protected function getMediaGroupCount($mediaGroupId): int
+        {
+            return (int)$this->getRedisClient()->get($this->makeMediaGroupCountName($mediaGroupId));
+        }
+
+        protected function deleteMediaGroupCount($mediaGroupId): int
+        {
+            return (int)$this->getRedisClient()->del($this->makeMediaGroupCountName($mediaGroupId));
         }
 
     }

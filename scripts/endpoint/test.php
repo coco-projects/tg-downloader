@@ -10,7 +10,7 @@
     {
         try
         {
-            $manager->webHookEndPoint($v, 2);
+            $manager->webHookEndPoint($v);
             echo 'success';
             echo PHP_EOL;
         }
