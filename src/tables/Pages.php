@@ -26,8 +26,8 @@
             "page_type"          => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT '页面类型，1:首页，2:列表页，3:详情页',",
             "is_first_type_page" => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT '列表页，是否第一页',",
             "page_num"           => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT '列表页，对应是第几页',",
-            "collection_type_id" => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT 'type为 2，3 时，对应的 collection 的 type 的 id',",
-            "collection_id"      => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT 'type为 3 时，对应的 collection 的 id',",
+            "post_type_id"       => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT 'type为 2，3 时，对应的 collection 的 type 的 id',",
+            "post_id"            => "`__FIELD__NAME__` bigint(10) unsigned NOT NULL COMMENT 'type为 3 时，对应的 collection 的 id',",
             "page_num_list"      => "`__FIELD__NAME__` char(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '列表页，翻页列表按钮',",
             "params"             => "`__FIELD__NAME__` text COLLATE utf8mb4_unicode_ci COMMENT '生成时候的中间参数',",
             "identification"     => "`__FIELD__NAME__` char(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '页面唯一标识',",
@@ -36,15 +36,15 @@
         ];
 
         protected array $indexSentence = [
-            "page_type"          => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "is_first_type_page" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "collection_type_id" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "collection_id"      => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "page_num"           => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "account"            => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "token"              => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "page_type"                => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "is_first_type_page"       => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "collection_type_id"       => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "collection_id"            => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "page_num"                 => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "account"                  => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "identification,page_type" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "token"                    => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
         ];
-
 
         public function setPathField(string $value): static
         {
@@ -226,28 +226,28 @@
             return $this->getFieldName('page_num');
         }
 
-        public function setCollectionTypeIdField(string $value): static
+        public function setPostTypeIdField(string $value): static
         {
-            $this->setFeildName('collection_type_id', $value);
+            $this->setFeildName('post_type_id', $value);
 
             return $this;
         }
 
-        public function getCollectionTypeIdField(): string
+        public function getPostTypeIdField(): string
         {
-            return $this->getFieldName('collection_type_id');
+            return $this->getFieldName('post_type_id');
         }
 
-        public function setCollectionIdField(string $value): static
+        public function setPostIdField(string $value): static
         {
-            $this->setFeildName('collection_id', $value);
+            $this->setFeildName('post_id', $value);
 
             return $this;
         }
 
-        public function getCollectionIdField(): string
+        public function getPostIdField(): string
         {
-            return $this->getFieldName('collection_id');
+            return $this->getFieldName('post_id');
         }
 
         public function setPageNumListField(string $value): static
@@ -309,6 +309,5 @@
         {
             return $this->getFieldName('time');
         }
-
 
     }

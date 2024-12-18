@@ -3,6 +3,7 @@
     use Coco\tgDownloader\Manager;
     use Coco\tgDownloader\tables\Message;
     use Coco\tgDownloader\tables\Post;
+    use Coco\telegraph\dom\E;
 
     require __DIR__ . '/../vendor/autoload.php';
 
@@ -43,9 +44,9 @@
      * 初始化其他组件
      * -------------------------------------------------------------------------------
      * */
-    $manager->initRedis();
+    $manager->initRedis(db: 2);
 
-     $manager->initMysql(db: 'ithinkphp_telegraph_test01');
+    $manager->initMysql(db: 'ithinkphp_telegraph_test01');
 //    $manager->initMysql('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
 
     $manager->initTelegramBotApi(apiId: $config['apiId'], apiHash: $config['apiHash']);
@@ -54,6 +55,33 @@
 
     $manager->enableRedisHandler(db: 2, logName: 'te-download-log');
     $manager->enableEchoHandler();
+
+    /*
+     * telegraph 相关配置
+     * -------------------------------------------------------------------------------
+     * */
+
+    $style = new \Coco\tgDownloader\styles\Style1();
+
+    $style->setAdvArray([
+        (E::span('自定义广告区域1111')),
+        (E::br()),
+        (E::span('自定义广告区域2222')),
+        (E::br()),
+        (E::splitLine('-')),
+    ]);
+
+    $style->addNav('自定义链接-百度', 'https://baidu.com');
+    $style->addNav('自定义链接-google', 'https://google.com');
+    $style->setMediaUrl('https://ex.72da.com/medias/');
+
+    $manager->setStyle($style);
+    $manager->setTelegraphProxy('192.168.0.111:1080');
+    $manager->setBrandTitle('汪汪');
+    $manager->setPageRow(5);
+    $manager->setMaxTimes(50);
+    $manager->setQueueDelayMs(0);
+    $manager->setTelegraphTimeout(50);
 
     /*
      * 初始化公用表
@@ -88,23 +116,15 @@
         $registry = $table->getTableRegistry();
 
         $table->setPkField('id');
-        $table->setIsPkAutoInc(false);
-        $table->setPkValueCallable($registry::snowflakePKCallback());
+        $table->setIsPkAutoInc(true);
     });
 
     $manager->initAccountTable('te_account', function(\Coco\tgDownloader\tables\Account $table) {
         $registry = $table->getTableRegistry();
 
         $table->setPkField('id');
-        $table->setIsPkAutoInc(false);
-        $table->setPkValueCallable($registry::snowflakePKCallback());
+        $table->setIsPkAutoInc(true);
     });
-
-    /*
-     * 初始化业务页面表
-     * 共同数据要生成多套系统时，修改表名即可
-     * -------------------------------------------------------------------------------
-     * */
 
     $manager->initPagesTable('te_pages', function(\Coco\tgDownloader\tables\Pages $table) {
         $registry = $table->getTableRegistry();
@@ -114,8 +134,6 @@
         $table->setPkValueCallable($registry::snowflakePKCallback());
     });
 
-
-
-
+    $manager->initCommonProperty();
 
 

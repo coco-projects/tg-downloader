@@ -4,47 +4,63 @@
 
     namespace Coco\tgDownloader;
 
+    use Coco\queue\missionProcessors\GuzzleMissionProcessor;
+    use Coco\queue\resultProcessor\CustomResultProcessor;
+    use Coco\tgDownloader\styles\StyleAbstract;
+    use DI\Container;
+    use GuzzleHttp\Client;
+
+    use Symfony\Component\Cache\Adapter\RedisAdapter;
+    use Symfony\Component\Cache\Marshaller\DefaultMarshaller;
+    use Symfony\Component\Cache\Marshaller\DeflateMarshaller;
+    use Symfony\Component\Finder\Finder;
+
     use Coco\commandBuilder\command\Curl;
     use Coco\commandRunner\DaemonLauncher;
     use Coco\commandRunner\Launcher;
-    use Coco\queue\MissionManager;
+
     use Coco\scanner\abstract\MakerAbastact;
     use Coco\scanner\LoopScanner;
     use Coco\scanner\LoopTool;
     use Coco\scanner\maker\CallbackMaker;
     use Coco\scanner\maker\FilesystemMaker;
     use Coco\scanner\processor\CallbackProcessor;
+
+    use Coco\queue\MissionManager;
+    use Coco\queue\Queue;
+
     use Coco\tableManager\TableRegistry;
+
     use Coco\tgDownloader\tables\Account;
     use Coco\tgDownloader\tables\Pages;
-    use DI\Container;
-    use GuzzleHttp\Client;
-    use Symfony\Component\Cache\Adapter\RedisAdapter;
-    use Symfony\Component\Cache\Marshaller\DefaultMarshaller;
-    use Symfony\Component\Cache\Marshaller\DeflateMarshaller;
-    use Symfony\Component\Finder\Finder;
-
     use Coco\tgDownloader\tables\Message;
     use Coco\tgDownloader\tables\Type;
     use Coco\tgDownloader\tables\File;
     use Coco\tgDownloader\tables\Post;
+    use Coco\tgDownloader\missions\TelegraphMission;
+    use Coco\telegraph\dom\E;
 
     class Manager
     {
-        protected MissionManager $manager;
-        protected ?Container     $container             = null;
-        protected array          $tables                = [];
-        protected array          $typeMap               = [];
-        protected ?string        $proxy                 = null;
-        protected ?string        $tempJsonPath          = null;
-        protected ?string        $mediaStorePath        = null;
-        protected ?string        $telegramBotApiPath    = null;
-        protected bool           $debug                 = false;
-        protected int            $maxDownloading        = 10;
-        protected int            $maxDownloadTimeout    = 360000;
-        protected int            $downloadDelayInSecond = 1;
-        protected ?string        $webHookUrl            = null;
-        protected ?string        $mediaOwner            = 'www';
+
+        /*
+         *
+         * ------------------------------------------------------
+         *
+         */
+
+        protected ?Container $container             = null;
+        protected array      $tables                = [];
+        protected array      $typeMap               = [];
+        protected ?string    $tempJsonPath          = null;
+        protected ?string    $mediaStorePath        = null;
+        protected ?string    $telegramBotApiPath    = null;
+        protected bool       $debug                 = false;
+        protected int        $maxDownloading        = 10;
+        protected int        $maxDownloadTimeout    = 360000;
+        protected int        $downloadDelayInSecond = 1;
+        protected ?string    $webHookUrl            = null;
+        protected ?string    $mediaOwner            = 'www';
 
         protected ?string $messageTableName = null;
         protected ?string $postTableName    = null;
@@ -58,10 +74,62 @@
         const SCANNER_FILE_MOVE      = 'file_move';
         const SCANNER_MIGRATION      = 'migration';
 
+        /*
+         *
+         * ------------------------------------------------------
+         *
+         */
+
         const PAGE_INDEX  = 1;
         const PAGE_TYPE   = 2;
         const PAGE_DETAIL = 3;
 
+        const FILE_STATUS_0_WAITING_DOWNLOAD = 0;
+        const FILE_STATUS_1_DOWNLOADING      = 1;
+        const FILE_STATUS_2_MOVED            = 2;
+        const FILE_STATUS_3_IN_POSTED        = 3;
+
+        const CREATE_ACCOUNT_QUEUE         = 'CREATE_ACCOUNT';
+        const CREATE_INDEX_PAGE_QUEUE      = 'CREATE_INDEX_PAGE';
+        const CREATE_FIRST_TYPE_PAGE_QUEUE = 'CREATE_FIRST_TYPE_PAGE';
+        const CREATE_DETAIL_PAGE_QUEUE     = 'CREATE_DETAIL_PAGE';
+        const CREATE_TYPE_ALL_PAGE_QUEUE   = 'CREATE_TYPE_ALL_PAGE';
+        const UPDATE_TYPE_ALL_PAGE_QUEUE   = 'UPDATE_TYPE_ALL_PAGE';
+        const UPDATE_DETAIL_PAGE_QUEUE     = 'UPDATE_DETAIL_PAGE';
+        const UPDATE_INDEX_PAGE_QUEUE      = 'UPDATE_INDEX_PAGE';
+
+        public Queue $createAccountQueue;
+        public Queue $createIndexPageQueue;
+        public Queue $createFirstTypePageQueue;
+        public Queue $createDetailPageQueue;
+        public Queue $createTypeAllPageQueue;
+        public Queue $updateTypeAllPageQueue;
+        public Queue $updateDetailPageQueue;
+        public Queue $updateIndexPageQueue;
+
+        protected int            $pageRow          = 10;
+        protected int            $telegraphTimeout = 30;
+        protected int            $maxTimes         = 10;
+        protected ?string        $brandTitle       = 'telegraph-pages';
+        protected int            $queueDelayMs     = 0;
+        protected ?string        $shortName        = 'bob';
+        protected ?string        $authorName       = 'tily';
+        protected ?string        $authorUrl        = '';
+        protected MissionManager $missionManager;
+        protected ?string        $telegraphProxy   = null;
+        protected ?StyleAbstract $style            = null;
+
+        protected array $whereFileStatus0WaitingDownload;
+        protected array $whereFileStatus1Downloading;
+        protected array $whereFileStatus2FileMoved;
+        protected array $whereFileStatus3InPosted;
+
+
+        /*
+         *
+         * ------------------------------------------------------
+         *
+         */
         public function __construct(protected string $bootToken, protected int $localServerPort = 8081, protected int $statisticsPort = 8082, protected string $basePath = './data', ?Container $container = null)
         {
             $this->envCheck();
@@ -75,8 +143,8 @@
                 $this->container = new Container();
             }
 
-            $this->manager = new MissionManager($this->container);
-            $this->manager->setStandardLogger('te-page-manager');
+            $this->missionManager = new MissionManager($this->container);
+            $this->missionManager->setStandardLogger('te-queue-manager');
 
             $this->basePath = rtrim($this->basePath, '/');
             is_dir($this->basePath) or mkdir($this->basePath, 0777, true);
@@ -85,28 +153,51 @@
             $this->tempJsonPath       = $this->basePath . 'json';
             $this->mediaStorePath     = $this->basePath . 'media';
             $this->telegramBotApiPath = $this->basePath . 'telegramBotApi';
+
+        }
+
+        public function initCommonProperty(): static
+        {
+            $msgTable                              = $this->getMessageTable();
+            $this->whereFileStatus0WaitingDownload = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_0_WAITING_DOWNLOAD,
+                ],
+            ];
+            $this->whereFileStatus1Downloading     = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_1_DOWNLOADING,
+                ],
+            ];
+            $this->whereFileStatus2FileMoved       = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_2_MOVED,
+                ],
+            ];
+            $this->whereFileStatus3InPosted        = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_3_IN_POSTED,
+                ],
+            ];
+
+            return $this;
         }
 
         /*
          *
-         * ---------------------------------------------------------
+         * ------------------------------------------------------
+         * telegram 资源下载
+         * ------------------------------------------------------
          *
-         * */
-
-        public function isDebug(): bool
-        {
-            return $this->debug;
-        }
-
-        public function setDebug(bool $debug): void
-        {
-            $this->debug = $debug;
-        }
-
-        public function getContainer(): Container
-        {
-            return $this->container;
-        }
+         */
 
         public function getTempJsonPath(): ?string
         {
@@ -216,11 +307,11 @@
                     $command->url(escapeshellarg($apiUrl));
 
                     // 创建 curl 命令
-                    $command = sprintf('curl -s -o %s --max-time %d %s', escapeshellarg($outputPath), $this->maxDownloadTimeout, escapeshellarg($apiUrl));
+//                    $command = sprintf('curl -s -o %s --max-time %d %s', escapeshellarg($outputPath), $this->maxDownloadTimeout, escapeshellarg($apiUrl));
 
                     $maker_->getScanner()->logInfo('exec:' . $command);
 
-                    $launcher = new Launcher($command);
+                    $launcher = new Launcher((string)$command);
 
                     $launcher->launch();
                 }
@@ -293,18 +384,18 @@
 
                     if ($this->isTelegramBotApiStarted())
                     {
-                        $this->manager->logInfo('API服务正常');
+                        $this->missionManager->logInfo('API服务正常');
                     }
                     else
                     {
-                        $this->manager->logInfo('【------- API服务熄火 -------】');
+                        $this->missionManager->logInfo('【------- API服务熄火 -------】');
 
                         return [];
                     }
 
                     while ($this->getRedisClient()->get(static::DOWNLOAD_LOCK_KEY))
                     {
-                        $this->manager->logInfo('锁定中，等待...');
+                        $this->missionManager->logInfo('锁定中，等待...');
                         usleep(1000 * 250);
                     }
 
@@ -316,12 +407,12 @@
                     $msgTable = $this->getMessageTable();
                     //没有文件的信息直接设置状态为2，不用处理文件
                     //getFileIdField 为空，并且getFileStatusField为0的
-                    $data = [
-                        $msgTable->getFileStatusField() => 2,
-                    ];
-
-                    $msgTable->tableIns()->where($msgTable->getFileIdField(), '=', '')
-                        ->where($msgTable->getFileStatusField(), 'in', [0])->update($data);
+                    $msgTable->tableIns()
+                        ->where($msgTable->getFileIdField(), '=', '')
+                        ->where($this->whereFileStatus0WaitingDownload)
+                        ->update([
+                            $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
+                        ]);
 
                     /**
                      * ---------------------------------------
@@ -337,12 +428,12 @@
                      */
                     $downloadingRemain = $this->getDownloadingRemainCount();
 
-                    $this->manager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
+                    $this->missionManager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
 
                     //如果正在下载的任务大于等于最大限制
                     if ($downloading >= $this->maxDownloading)
                     {
-                        $this->manager->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
+                        $this->missionManager->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
 
                         return [];
                     }
@@ -362,8 +453,10 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($msgTable->getFileStatusField(), 'in', [0])
-                        ->limit(0, $this->maxDownloading - $downloading)->order($msgTable->getPkField())->select();
+                    ]))->where($this->whereFileStatus0WaitingDownload)
+                        ->limit(0, $this->maxDownloading - $downloading)
+                        ->order($msgTable->getPkField())->select();
+
                     $data1 = $data1->toArray();
 
                     /*
@@ -378,8 +471,8 @@
                         $msgTable->getFileSizeField(),
                     ]))->where($msgTable->getDownloadTimeField(), '>', 0)
                         ->where($msgTable->getDownloadTimeField(), '<', time() - $this->maxDownloadTimeout)
-                        ->where($msgTable->getFileStatusField(), 'in', [1])
-                        ->limit(0, $this->maxDownloading - $downloading)->order($msgTable->getPkField())
+                        ->where($this->whereFileStatus1Downloading)->limit(0, $this->maxDownloading - $downloading)
+                        ->order($msgTable->getPkField())
 //                         ->fetchSql(true)
                         ->select();
 
@@ -402,7 +495,7 @@
                     //更新下载状态和开始下载时间
                     $timeNow = time();
                     $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
-                        $msgTable->getFileStatusField()   => 1,
+                        $msgTable->getFileStatusField()   => static::FILE_STATUS_1_DOWNLOADING,
                         $msgTable->getDownloadTimeField() => $timeNow,
                     ]);
 
@@ -415,7 +508,6 @@
 
                 /*-------------------------------------------*/
                 $maker->init(function(CallbackMaker $maker_) {
-
                 });
 
                 /*-------------------------------------------*/
@@ -460,14 +552,14 @@
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [1])->count();
+            return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
         }
 
         public function getDownloadingRemainCount(): int
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()->where($msgTable->getFileStatusField(), 'in', [0])->count();
+            return $msgTable->tableIns()->where($this->whereFileStatus0WaitingDownload)->count();
         }
 
         public function stopDownloadMedia(): void
@@ -523,7 +615,7 @@
                             unlink($fullSourcePath);
 
                             $msgTable->tableIns()->where($msgTable->getPkField(), '=', $id)->update([
-                                $msgTable->getFileStatusField() => 0,
+                                $msgTable->getFileStatusField() => static::FILE_STATUS_0_WAITING_DOWNLOAD,
                             ]);
 
                             return;
@@ -536,7 +628,7 @@
                             unlink($fullSourcePath);
 
                             $msgTable->tableIns()->where($msgTable->getPkField(), '=', $id)->update([
-                                $msgTable->getFileStatusField() => 0,
+                                $msgTable->getFileStatusField() => static::FILE_STATUS_0_WAITING_DOWNLOAD,
                             ]);
 
                             continue;
@@ -550,7 +642,6 @@
                         $fileType = $t[count($t) - 2];
 
                         $updateInfo = $msgTable->tableIns()->where($msgTable->getPkField(), $id)->find();
-//                        $updateInfo = $msgTable->tableIns()->where($msgTable->getFileIdField(), $jsonInfo['result']['file_id'])->find();
 
                         $targetPath = static::makePath($jsonInfo['result']['file_id'], $fileType) . '.' . $updateInfo[$msgTable->getExtField()];
 
@@ -579,7 +670,7 @@
 
                                 //如果有的话，把所有同 file_id 的 path 都更新
                                 $data = [
-                                    $msgTable->getFileStatusField() => 2,
+                                    $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
                                     $msgTable->getPathField()       => $path,
                                 ];
 
@@ -606,7 +697,7 @@
 
                                 $data = [
                                     $msgTable->getPathField()       => $targetPath,
-                                    $msgTable->getFileStatusField() => 2,
+                                    $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
                                 ];
 
                                 $res = $msgTable->tableIns()
@@ -632,7 +723,7 @@
                                 unlink($fullSourcePath);
 
                                 $msgTable->tableIns()->where($msgTable->getPkField(), '=', $id)->update([
-                                    $msgTable->getFileStatusField() => 0,
+                                    $msgTable->getFileStatusField() => static::FILE_STATUS_0_WAITING_DOWNLOAD,
                                 ]);
 
                             }
@@ -716,9 +807,8 @@
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()
-                        ->where($msgTable->getFileStatusField(), 'in', [2])
-                        ->limit(0, 100)->order($msgTable->getPkField())->select();
+                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 100)
+                        ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
                     $group  = [];
@@ -774,6 +864,8 @@
                         $ids   = [];
                         $files = [];
 
+                        $baseMessageInfo = $item[0];
+
                         //计算出文本信息
                         $content = '';
                         foreach ($item as $k => $messageInfo)
@@ -792,12 +884,6 @@
                         }
 
                         $content = trim($content);
-
-                        //没有文件也没有文本，空消息
-                        if (!$content && !$messageInfo[$msgTable->getPathField()])
-                        {
-                            break;
-                        }
 
                         $postId = $postTable->calcPk();
 
@@ -822,24 +908,30 @@
                             $ids[] = $messageInfo[$msgTable->getPkField()];
                         }
 
-                        $content = preg_replace('#[\r\n]+#', ' ', $content);
+                        //没有文件也没有文本，空消息
+                        if (!$content && !count($files))
+                        {
+                            break;
+                        }
+
+                        $content = preg_replace('#[\r\n]+#iu', "\r\n", $content);
                         $maker_->getScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
                         $maker_->getScanner()->logInfo(PHP_EOL);
 
                         if (count($files))
                         {
                             $fileTable->tableIns()->insertAll($files);
-                            $maker_->getScanner()->logInfo('写入 file 表:' . $messageInfo[$msgTable->getPathField()]);
+                            $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
                         }
 
                         //向 post 插入一个记录
                         //有可能当前这个 message 不是消息组中第一个带有 caption 的消息
                         $postTable->tableIns()->insert([
                             $postTable->getPkField()           => $postId,
-                            $postTable->getTypeIdField()       => $messageInfo[$msgTable->getTypeIdField()],
+                            $postTable->getTypeIdField()       => $baseMessageInfo[$msgTable->getTypeIdField()],
                             $postTable->getContentsField()     => $content,
                             $postTable->getMediaGroupIdField() => $mediaGroupId,
-                            $postTable->getDateField()         => $messageInfo[$msgTable->getDateField()],
+                            $postTable->getDateField()         => $baseMessageInfo[$msgTable->getDateField()],
                             $postTable->getTimeField()         => time(),
                         ]);
 
@@ -848,7 +940,7 @@
 
                         //更新状态为数据已经迁移
                         $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
-                            $msgTable->getFileStatusField() => 3,
+                            $msgTable->getFileStatusField() => static::FILE_STATUS_3_IN_POSTED,
                         ]);
                     }
                 }));
@@ -1046,7 +1138,7 @@
                 return (new \Redis());
             });
 
-            $this->manager->initRedisClient(function(MissionManager $missionManager) use ($host, $password, $port, $db) {
+            $this->missionManager->initRedisClient(function(MissionManager $missionManager) use ($host, $password, $port, $db) {
                 /**
                  * @var \Redis $redis
                  */
@@ -1059,6 +1151,8 @@
             });
 
             $this->initCache();
+
+            $this->initQueue();
 
             return $this;
         }
@@ -1186,50 +1280,8 @@
             return $this->getMysqlClient()->getTable($this->pagesTableName);
         }
 
-        /**********************/
 
-        public function getAllTableStatus(): array
-        {
-            $data = [];
 
-            $a                                         = $this->getMessageTable()->isTableCerated();
-            $data[$this->getMessageTable()->getName()] = [
-                'is_created' => (int)$a,
-                'count'      => $a ? (int)$this->getMessageTable()->getCount() : 0,
-            ];
-
-            $b                                      = $this->getTypeTable()->isTableCerated();
-            $data[$this->getTypeTable()->getName()] = [
-                'is_created' => (int)$b,
-                'count'      => $b ? (int)$this->getTypeTable()->getCount() : 0,
-            ];
-
-            $c                                      = $this->getFileTable()->isTableCerated();
-            $data[$this->getFileTable()->getName()] = [
-                'is_created' => (int)$c,
-                'count'      => $c ? (int)$this->getFileTable()->getCount() : 0,
-            ];
-
-            $d                                      = $this->getPostTable()->isTableCerated();
-            $data[$this->getPostTable()->getName()] = [
-                'is_created' => (int)$d,
-                'count'      => $d ? (int)$this->getPostTable()->getCount() : 0,
-            ];
-
-            $e                                         = $this->getAccountTable()->isTableCerated();
-            $data[$this->getAccountTable()->getName()] = [
-                'is_created' => (int)$e,
-                'count'      => $e ? (int)$this->getAccountTable()->getCount() : 0,
-            ];
-
-            $f                                       = $this->getPagesTable()->isTableCerated();
-            $data[$this->getPagesTable()->getName()] = [
-                'is_created' => (int)$f,
-                'count'      => $f ? (int)$this->getPagesTable()->getCount() : 0,
-            ];
-
-            return $data;
-        }
         /**********************/
 
         /*
@@ -1258,45 +1310,6 @@
          * ---------------------------------------------------------
          *
          * */
-
-        public function enableEchoHandler(): static
-        {
-            $this->manager->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            $this->getMysqlClient()->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            $this->getDownloadMediaScanner()->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            $this->getToFileMoveScanner()->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            $this->getMigrationScanner()->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            $this->getTelegramBotApi()->addStdoutHandler(callback: $this->manager::getStandardFormatter());
-
-            return $this;
-        }
-
-        public function enableRedisHandler(string $redisHost = '127.0.0.1', int $redisPort = 6379, string $password = '', int $db = 10, string $logName = 'redis_log'): static
-        {
-            $this->manager->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-manager', callback: $this->manager::getStandardFormatter());
-
-            $this->getMysqlClient()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MysqlClient', callback: $this->manager::getStandardFormatter());
-
-            $this->getDownloadMediaScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-DownloadMediaScanner', callback: $this->manager::getStandardFormatter());
-
-            $this->getToFileMoveScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-ToFileMoveScanner', callback: $this->manager::getStandardFormatter());
-
-            $this->getMigrationScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MigrationScanner', callback: $this->manager::getStandardFormatter());
-
-            $this->getTelegramBotApi()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-TelegramBotApi', callback: $this->manager::getStandardFormatter());
-
-            return $this;
-        }
 
         /*
          * ---------------------------------------------------------
@@ -1457,6 +1470,1495 @@
             return preg_split('#[\r\n]+#', $data, -1, PREG_SPLIT_NO_EMPTY);
         }
 
+
+        /*
+         *
+         * ---------------------------------------------------------
+         *
+         * */
+
+        protected function makeMediaGroupCountName($mediaGroupId): string
+        {
+            return 'media_group_count:' . $mediaGroupId;
+        }
+
+        protected function incMediaGroupCount($mediaGroupId): static
+        {
+            $this->getRedisClient()->incr($this->makeMediaGroupCountName($mediaGroupId));
+
+            return $this;
+        }
+
+        protected function getMediaGroupCount($mediaGroupId): int
+        {
+            return (int)$this->getRedisClient()->get($this->makeMediaGroupCountName($mediaGroupId));
+        }
+
+        protected function deleteMediaGroupCount($mediaGroupId): int
+        {
+            return (int)$this->getRedisClient()->del($this->makeMediaGroupCountName($mediaGroupId));
+        }
+
+        /*
+         *
+         * ------------------------------------------------------
+         * telegraph 页面生成
+         * ------------------------------------------------------
+         *
+         */
+
+        /*-------------------------------------------------------------------*/
+        public function createAccountToQueue($number): void
+        {
+            for ($i = 1; $i <= $number; $i++)
+            {
+                $mission = new TelegraphMission();
+                $mission->setTimeout($this->telegraphTimeout);
+                $mission->index = $i;
+
+                if (!is_null($this->telegraphProxy))
+                {
+                    $mission->setProxy($this->telegraphProxy);
+                }
+
+                $mission->createAccount($this->shortName, $this->authorName, $this->authorUrl);
+
+                $this->createAccountQueue->addNewMission($mission);
+            }
+        }
+
+        public function listenCreateAccount(): void
+        {
+            $queue = $this->createAccountQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                if ($result['ok'])
+                {
+                    $accountTab = $this->getAccountTable();
+
+                    $data = [
+                        $accountTab->getShortNameField()   => $result['result']['short_name'],
+                        $accountTab->getAuthorUrlField()   => $result['result']['author_url'],
+                        $accountTab->getAuthorNameField()  => $result['result']['author_name'],
+                        $accountTab->getAuthUrlField()     => $result['result']['auth_url'],
+                        $accountTab->getAccessTokenField() => $result['result']['access_token'],
+                        $accountTab->getTimeField()        => time(),
+                    ];
+
+                    if (!$accountTab->isPkAutoInc())
+                    {
+                        $data[$accountTab->getPkField()] = $accountTab->calcPk();
+                    }
+
+                    $res = $accountTab->tableIns()->insert($data);
+
+                    if ($res)
+                    {
+                        $this->missionManager->logInfo('创建成功: ' . $mission->index);
+                    }
+                    else
+                    {
+                        $this->missionManager->logError('写入错误: ' . $mission->index);
+                    }
+
+                }
+                else
+                {
+                    $this->missionManager->logError($mission->index . ' -- ' . $result['error']);
+                }
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function createIndexPageToQueue(): void
+        {
+            if ($this->isIndexPageCreated())
+            {
+                $this->missionManager->logInfo('index 页面已经创建，此任务被忽略');
+
+                return;
+            }
+
+            $token   = $this->getRandToken();
+            $mission = new TelegraphMission();
+            $mission->setTimeout($this->telegraphTimeout);
+            $mission->token = $token;
+
+            if (!is_null($this->telegraphProxy))
+            {
+                $mission->setProxy($this->telegraphProxy);
+            }
+
+            $json = $this->style->placeHolder('index 建设中...');
+            $mission->setAccessToken($token);
+            $mission->createPage($this->brandTitle, $json, true);
+
+            $this->createIndexPageQueue->addNewMission($mission);
+        }
+
+        public function listenCreateIndexPage(): void
+        {
+            $queue = $this->createIndexPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                if ($result['ok'])
+                {
+                    $pageTab = $this->getPagesTable();
+                    $data    = [
+                        $pageTab->getPathField()            => $result['result']['path'],
+                        $pageTab->getUrlField()             => $result['result']['url'],
+                        $pageTab->getTitleField()           => $result['result']['title'],
+                        $pageTab->getDescriptionField()     => $result['result']['description'],
+                        $pageTab->getContentField()         => json_encode($result['result']['content'], 256),
+                        $pageTab->getViewsField()           => $result['result']['views'],
+                        $pageTab->getCanEditField()         => (int)$result['result']['can_edit'],
+                        $pageTab->getTokenField()           => $mission->token,
+                        $pageTab->getPageTypeField()        => static::PAGE_INDEX,
+                        $pageTab->getIsFirstTypePageField() => 0,
+                        $pageTab->getPageNumField()         => 0,
+                        $pageTab->getPostTypeIdField()      => 0,
+                        $pageTab->getPostIdField()          => 0,
+                        $pageTab->getPageNumListField()     => '',
+                        $pageTab->getParamsField()          => json_encode([], 256),
+                        $pageTab->getIdentificationField()  => $this->makeIndexPageId(),
+                        $pageTab->getUpdateTimeField()      => time(),
+                        $pageTab->getTimeField()            => time(),
+                    ];
+
+                    if (!$pageTab->isPkAutoInc())
+                    {
+                        $data[$pageTab->getPkField()] = $pageTab->calcPk();
+                    }
+
+                    $re = $pageTab->tableIns()->insert($data);
+
+                    if ($re)
+                    {
+                        $this->missionManager->logInfo('index 创建 ok');
+                    }
+                    else
+                    {
+                        $this->missionManager->logError($json);
+                    }
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function createFirstTypePageToQueue(): void
+        {
+            $typeTab = $this->getTypeTable();
+
+            $types = $typeTab->tableIns()->field(implode(',', [
+                $typeTab->getPkField(),
+                $typeTab->getNameField(),
+            ]))->select();
+
+            foreach ($types as $k => $type)
+            {
+                if ($this->isTypePageCreated($type[$typeTab->getPkField()], 1))
+                {
+                    $this->missionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
+
+                    continue;
+                }
+
+                $token    = $this->getRandToken();
+                $typeName = $type[$typeTab->getNameField()];
+
+                $mission = new TelegraphMission();
+                $mission->setTimeout($this->telegraphTimeout);
+                $mission->token    = $token;
+                $mission->typeInfo = $type;
+
+                if (!is_null($this->telegraphProxy))
+                {
+                    $mission->setProxy($this->telegraphProxy);
+                }
+
+                $title = $this->makePageName($typeName);
+                $json  = $this->style->placeHolder($title . ' 建设中...');
+                $mission->setAccessToken($token);
+                $mission->createPage($title, $json, true);
+
+                $this->missionManager->logInfo('createFirstTypePage: ' . $title);
+
+                $this->createFirstTypePageQueue->addNewMission($mission);
+            }
+        }
+
+        public function listenCreateFirstTypePage(): void
+        {
+            $queue = $this->createFirstTypePageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $token = $mission->token;
+                if ($result['ok'])
+                {
+                    $pageTab = $this->getPagesTable();
+                    $typeTab = $this->getTypeTable();
+
+                    $data = [
+                        $pageTab->getPathField()            => $result['result']['path'],
+                        $pageTab->getUrlField()             => $result['result']['url'],
+                        $pageTab->getTitleField()           => $result['result']['title'],
+                        $pageTab->getDescriptionField()     => $result['result']['description'],
+                        $pageTab->getContentField()         => json_encode($result['result']['content'], 256),
+                        $pageTab->getViewsField()           => $result['result']['views'],
+                        $pageTab->getCanEditField()         => (int)$result['result']['can_edit'],
+                        $pageTab->getTokenField()           => $token,
+                        $pageTab->getPageTypeField()        => static::PAGE_TYPE,
+                        $pageTab->getIsFirstTypePageField() => 1,
+                        $pageTab->getPageNumField()         => 1,
+                        $pageTab->getPostTypeIdField()      => $mission->typeInfo[$typeTab->getPkField()],
+                        $pageTab->getPostIdField()          => 0,
+                        $pageTab->getPageNumListField()     => '',
+                        $pageTab->getParamsField()          => json_encode(["type" => $mission->typeInfo,], 256),
+                        $pageTab->getIdentificationField()  => $this->makeTypePageId($mission->typeInfo[$typeTab->getPkField()], 1),
+                        $pageTab->getUpdateTimeField()      => time(),
+                        $pageTab->getTimeField()            => time(),
+                    ];
+
+                    if (!$pageTab->isPkAutoInc())
+                    {
+                        $data[$pageTab->getPkField()] = $pageTab->calcPk();
+                    }
+
+                    $re = $pageTab->tableIns()->insert($data);
+
+                    if ($re)
+                    {
+                        $this->missionManager->logInfo('ok-' . $mission->typeInfo[$this->getTypeTable()
+                                ->getNameField()]);
+                    }
+                    else
+                    {
+                        $this->missionManager->logError($json);
+                    }
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function createDetailPageToQueue(): void
+        {
+            $typeTab = $this->getTypeTable();
+            $postTab = $this->getPostTable();
+
+            $func = function($posts) use ($postTab, $typeTab) {
+                foreach ($posts as $post)
+                {
+                    if ($this->isDetailPageCreated($post[$postTab->getPkField()]))
+                    {
+                        $this->missionManager->logInfo('id:' . $post[$postTab->getPkField()] . ' 详情页面已经创建，此任务被忽略');
+
+                        continue;
+                    }
+
+                    $token = $this->getRandToken();
+                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 30);
+
+                    if (!$title)
+                    {
+                        $title = '无标题贴';
+                    }
+
+                    $mission = new TelegraphMission();
+                    $mission->setTimeout($this->telegraphTimeout);
+                    $mission->token = $token;
+                    $mission->post  = $post;
+
+                    if (!is_null($this->telegraphProxy))
+                    {
+                        $mission->setProxy($this->telegraphProxy);
+                    }
+
+                    $title = "[" . date('Y-m-d') . "]" . $this->makePageName($title);
+                    $json  = $this->style->placeHolder($title . ' 建设中...');
+                    $mission->setAccessToken($token);
+                    $mission->createPage($title, $json, true);
+
+                    $this->missionManager->logInfo('createDetailPage: ' . $post['id'] . ' - ' . $title);
+
+                    $this->createDetailPageQueue->addNewMission($mission);
+                }
+            };
+
+            $postTab->tableIns()->alias('post')->field(implode(',', [
+                'post.*',
+                'type.' . $typeTab->getNameField() . ' as type_name',
+            ]))
+                ->join($typeTab->getName() . ' type', 'post.' . $postTab->getTypeIdField() . ' = type.' . $typeTab->getPkField(), 'left')
+//                ->fetchSql(true)
+//                ->select();
+                ->chunk(500, $func, 'post.' . $postTab->getPkField());
+        }
+
+        public function listenCreateDetailPage(): void
+        {
+            $queue = $this->createDetailPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $token = $mission->token;
+                if ($result['ok'])
+                {
+                    $pageTab = $this->getPagesTable();
+                    $typeTab = $this->getTypeTable();
+                    $postTab = $this->getPostTable();
+
+                    $data = [
+                        $pageTab->getPathField()            => $result['result']['path'],
+                        $pageTab->getUrlField()             => $result['result']['url'],
+                        $pageTab->getTitleField()           => $result['result']['title'],
+                        $pageTab->getDescriptionField()     => $result['result']['description'],
+                        $pageTab->getContentField()         => json_encode($result['result']['content'], 256),
+                        $pageTab->getViewsField()           => $result['result']['views'],
+                        $pageTab->getCanEditField()         => (int)$result['result']['can_edit'],
+                        $pageTab->getTokenField()           => $token,
+                        $pageTab->getPageTypeField()        => static::PAGE_DETAIL,
+                        $pageTab->getIsFirstTypePageField() => 0,
+                        $pageTab->getPageNumField()         => 0,
+                        $pageTab->getPostTypeIdField()      => $mission->post[$postTab->getTypeIdField()],
+                        $pageTab->getPostIdField()          => $mission->post[$postTab->getPkField()],
+                        $pageTab->getPageNumListField()     => '',
+                        $pageTab->getParamsField()          => json_encode([
+                            "post"  => $mission->post,
+                            "token" => $mission->token,
+                        ], 256),
+                        $pageTab->getIdentificationField()  => $this->makeDetailPageId($mission->post[$postTab->getPkField()]),
+                        $pageTab->getUpdateTimeField()      => time(),
+                        $pageTab->getTimeField()            => time(),
+                    ];
+
+                    if (!$pageTab->isPkAutoInc())
+                    {
+                        $data[$pageTab->getPkField()] = $pageTab->calcPk();
+                    }
+
+                    $re = $pageTab->tableIns()->insert($data);
+
+                    if ($re)
+                    {
+                        $title = static::truncateUtf8String($mission->post[$postTab->getContentsField()], 30);
+
+                        if (!$title)
+                        {
+                            $title = '无标题贴';
+                        }
+
+                        $this->missionManager->logInfo('ok-' . $title);
+                    }
+                    else
+                    {
+                        $this->missionManager->logError($json);
+                    }
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function createTypeAllPageToQueue(): void
+        {
+            $typeTab = $this->getTypeTable();
+            $postTab = $this->getPostTable();
+            $pageTab = $this->getPagesTable();
+
+            //所有分类页面
+            $wherePageType = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_TYPE,
+                ],
+            ];
+
+            //所有详情页面
+            $wherePageDetail = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_DETAIL,
+                ],
+            ];
+
+            //所有涉及到的分类
+            $typeIds = $pageTab->tableIns()->where($wherePageDetail)->group($pageTab->getPostTypeIdField())
+                ->column($pageTab->getPostTypeIdField());
+
+            //遍历分类，生成分页信息
+            foreach ($typeIds as $k => $typeId)
+            {
+                //查出分类详细信息
+                $type = $typeTab->tableIns()->where([$typeTab->getPkField() => $typeId])->find();
+
+                $typeName = $type[$typeTab->getNameField()];
+
+                //当前分类总记录数
+                $count = $pageTab->tableIns()->where($wherePageDetail)
+                    ->where([$pageTab->getPostTypeIdField() => $typeId])->count();
+
+                //折合总页数
+                $totalPages = (int)ceil($count / $this->pageRow);
+
+                //生成当前分类页数信息，为每页构造列表页面
+                for ($pageNow = 1; $pageNow <= $totalPages; $pageNow++)
+                {
+                    $results = $pageTab->tableIns()->where($wherePageDetail)
+                        ->where([$pageTab->getPostTypeIdField() => $typeId,])->order($pageTab->getPostIdField(), 'asc')
+                        ->paginate([
+                            'list_rows' => $this->pageRow,
+                            'page'      => $pageNow,
+                        ]);
+
+                    preg_match_all('%\d+(?=</a>|</span>)%im', (string)$results->render(), $result, PREG_PATTERN_ORDER);
+                    $pagesNum = $result[0];
+
+                    sort($pagesNum);
+                    //如果是第一页，要更新之前生成的第一页的数据
+                    if ($pageNow == 1)
+                    {
+                        $pageTab->tableIns()->where($wherePageType)->where([$pageTab->getIsFirstTypePageField() => 1,])
+                            ->where([$pageTab->getPostTypeIdField() => $typeId,])->update([
+                                $pageTab->getPageNumListField() => implode(',', $pagesNum),
+                            ]);
+                    }
+                    else
+                    {
+                        if ($this->isTypePageCreated($type[$typeTab->getPkField()], $pageNow))
+                        {
+                            $this->missionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
+
+                            continue;
+                        }
+
+                        $token = $this->getRandToken();
+
+                        $mission = new TelegraphMission();
+                        $mission->setTimeout($this->telegraphTimeout);
+                        $mission->token    = $token;
+                        $mission->typeInfo = $type;
+                        $mission->pageNow  = $pageNow;
+                        $mission->pagesNum = $pagesNum;
+
+                        if (!is_null($this->telegraphProxy))
+                        {
+                            $mission->setProxy($this->telegraphProxy);
+                        }
+
+                        $title = $this->makePageName($typeName);
+                        $json  = $this->style->placeHolder($title . ' 建设中...');
+                        $mission->setAccessToken($token);
+                        $mission->createPage($title, $json, true);
+
+                        $this->missionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ' - ' . $pageNow);
+
+                        $this->createTypeAllPageQueue->addNewMission($mission);
+                    }
+                }
+            }
+
+        }
+
+        public function listenCreateTypeAllPage(): void
+        {
+            $queue = $this->createTypeAllPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $token = $mission->token;
+                if ($result['ok'])
+                {
+                    $pageTab = $this->getPagesTable();
+                    $typeTab = $this->getTypeTable();
+                    $postTab = $this->getPostTable();
+
+                    $data = [
+                        $pageTab->getPathField()            => $result['result']['path'],
+                        $pageTab->getUrlField()             => $result['result']['url'],
+                        $pageTab->getTitleField()           => $result['result']['title'],
+                        $pageTab->getDescriptionField()     => $result['result']['description'],
+                        $pageTab->getContentField()         => json_encode($result['result']['content'], 256),
+                        $pageTab->getViewsField()           => $result['result']['views'],
+                        $pageTab->getCanEditField()         => (int)$result['result']['can_edit'],
+                        $pageTab->getTokenField()           => $token,
+                        $pageTab->getPageTypeField()        => static::PAGE_TYPE,
+                        $pageTab->getIsFirstTypePageField() => 0,
+                        $pageTab->getPageNumField()         => $mission->pageNow,
+                        $pageTab->getPostTypeIdField()      => $mission->typeInfo[$typeTab->getPkField()],
+                        $pageTab->getPostIdField()          => 0,
+                        $pageTab->getPageNumListField()     => implode(',', $mission->pagesNum),
+                        $pageTab->getParamsField()          => json_encode([
+                            "type" => $mission->typeInfo,
+                        ], 256),
+                        $pageTab->getIdentificationField()  => $this->makeTypePageId($mission->typeInfo[$typeTab->getPkField()], $mission->pageNow),
+                        $pageTab->getUpdateTimeField()      => time(),
+                        $pageTab->getTimeField()            => time(),
+                    ];
+
+                    if (!$pageTab->isPkAutoInc())
+                    {
+                        $data[$pageTab->getPkField()] = $pageTab->calcPk();
+                    }
+
+                    $re = $pageTab->tableIns()->insert($data);
+
+                    if ($re)
+                    {
+                        $this->missionManager->logInfo('ok-' . $mission->typeInfo[$typeTab->getNameField()] . '--页码:' . $mission->pageNow);
+                    }
+                    else
+                    {
+                        $this->missionManager->logError($json);
+                    }
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function updateTypeAllPageToQueue(): void
+        {
+            $typeTab = $this->getTypeTable();
+            $postTab = $this->getPostTable();
+            $pageTab = $this->getPagesTable();
+
+            //所有分类页面
+            $wherePageType = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_TYPE,
+                ],
+            ];
+
+            //所有详情页面
+            $wherePageDetail = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_DETAIL,
+                ],
+            ];
+
+            //查询遍历所有的详情页面
+            $typePages = $pageTab->tableIns()->where($wherePageType)->cursor();
+
+            foreach ($typePages as $k => $typePage)
+            {
+                $params   = json_decode($typePage[$pageTab->getParamsField()], true);
+                $typeInfo = $params['type'];
+                $title    = $typeInfo[$this->getTypeTable()->getNameField()];
+
+                //分页按钮
+                $pageUrls = $pageTab->tableIns()->where($wherePageType)->where([
+                    [
+                        $pageTab->getPageNumField(),
+                        'in',
+                        explode(',', $typePage[$pageTab->getPageNumListField()]),
+                    ],
+                    [
+                        $pageTab->getPostTypeIdField(),
+                        '=',
+                        $typePage[$pageTab->getPostTypeIdField()],
+                    ],
+                ])->order($pageTab->getPageNumField(), 'asc')->field(implode(',', [
+                    $pageTab->getUrlField(),
+                    $pageTab->getPageNumField(),
+                ]))->select();
+
+                $pageButtons = [];
+
+                foreach ($pageUrls as $urls)
+                {
+                    $pageButtons[] = [
+                        "href"    => $urls[$pageTab->getUrlField()],
+                        "caption" => ($urls[$pageTab->getPageNumField()] !== $typePage[$pageTab->getPageNumField()]) ? $urls[$pageTab->getPageNumField()] : "<{$urls[$pageTab->getPageNumField()]}>",
+                    ];
+                }
+
+                //中间条目列表
+                $contentsList = [];
+
+                $detailPages = $pageTab->tableIns()->where($wherePageDetail)->where([
+                    [
+                        $pageTab->getPostTypeIdField(),
+                        '=',
+                        $typePage[$pageTab->getPostTypeIdField()],
+                    ],
+                ])->field(implode(',', [
+                    $pageTab->getUrlField(),
+                    $pageTab->getTitleField(),
+                ]))->order($pageTab->getPostIdField(), 'asc')->paginate([
+                    'list_rows' => $this->pageRow,
+                    'page'      => $typePage[$pageTab->getPageNumField()],
+                ]);
+
+                foreach ($detailPages as $detailPage)
+                {
+                    $contentsList[] = [
+                        "href"    => $detailPage[$pageTab->getUrlField()],
+                        "caption" => $detailPage[$pageTab->getTitleField()],
+                    ];
+                }
+
+                $this->style->updateTypePage($typeInfo, $pageButtons, $contentsList);
+
+                $token   = $typePage[$pageTab->getTokenField()];
+                $mission = new TelegraphMission();
+                $mission->setTimeout($this->telegraphTimeout);
+                $mission->typePage = $typePage;
+
+                if (!is_null($this->telegraphProxy))
+                {
+                    $mission->setProxy($this->telegraphProxy);
+                }
+
+                $mission->setAccessToken($token);
+                $mission->editPage($typePage[$pageTab->getPathField()], $this->makePageName($title), $this->style->toJson(), true);
+
+                $this->missionManager->logInfo(implode([
+                    'updateTypeAllPageToQueue，',
+                    '分类:' . $typePage[$pageTab->getPostTypeIdField()] . '，',
+                    '页码:' . $typePage[$pageTab->getPageNumField()] . '，',
+                    'url: ' . $typePage[$pageTab->getUrlField()],
+                    $title,
+                ]));
+
+                $this->updateTypeAllPageQueue->addNewMission($mission);
+            }
+
+        }
+
+        public function listenUpdateTypeAllPage(): void
+        {
+            $queue = $this->updateTypeAllPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $typeTab = $this->getTypeTable();
+                $postTab = $this->getPostTable();
+                $pageTab = $this->getPagesTable();
+
+                if ($result['ok'])
+                {
+                    $this->missionManager->logInfo(implode([
+                        '更新成功，',
+                        '分类:' . $mission->typePage[$pageTab->getPostTypeIdField()] . '，',
+                        '页码:' . $mission->typePage[$pageTab->getPageNumField()] . '，',
+                        'url: ' . $mission->typePage[$pageTab->getUrlField()],
+                    ]));
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function updateDetailPageToQueue(): void
+        {
+            $pageTab = $this->getPagesTable();
+            $typeTab = $this->getTypeTable();
+            $postTab = $this->getPostTable();
+            $fileTab = $this->getFileTable();
+
+            $wherePageDetail = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_DETAIL,
+                ],
+            ];
+
+            $pageTab->tableIns()->alias('webpages')
+                ->join($typeTab->getName() . ' type', 'webpages.' . $pageTab->getPostTypeIdField() . ' = type.' . $typeTab->getPkField(), 'left')
+                ->field(implode(',', [
+                    'webpages.*',
+                    'type.' . $typeTab->getNameField() . ' as type_name',
+                ]))->where($wherePageDetail)
+                ->chunk(100, function($pages) use ($wherePageDetail, $postTab, $fileTab, $pageTab, $typeTab) {
+                    foreach ($pages as $page)
+                    {
+                        $params = json_decode($page[$pageTab->getParamsField()], true);
+                        $token  = $params['token'];
+                        $post   = $params['post'];
+
+                        $title = static::truncateUtf8String($post[$postTab->getContentsField()], 30) . '...';
+
+                        if (!$title)
+                        {
+                            $title = '无标题贴';
+                        }
+
+                        $files = $fileTab->tableIns()->where([
+                            [
+                                $fileTab->getPostIdField(),
+                                '=',
+                                $page[$pageTab->getPostIdField()],
+                            ],
+                        ])->order($fileTab->getPkField(), 'asc')->select();
+
+                        $prve_next_item = [];
+
+                        $prve = $pageTab->tableIns()->where($wherePageDetail)->where([
+                            [
+                                $pageTab->getPostTypeIdField(),
+                                '=',
+                                $page[$pageTab->getPostTypeIdField()],
+                            ],
+                            [
+                                $pageTab->getPostIdField(),
+                                '<',
+                                $page[$pageTab->getPostIdField()],
+                            ],
+
+                        ])->order($pageTab->getPostIdField(), 'desc')->find();
+                        if ($prve)
+                        {
+                            $prve_next_item[] = [
+                                "href"    => $prve[$pageTab->getUrlField()],
+                                "caption" => [
+                                    E::strong("[上一篇]: "),
+                                    $prve[$pageTab->getTitleField()],
+                                ],
+                            ];
+                        }
+
+                        $next = $pageTab->tableIns()->where($wherePageDetail)->where([
+                            [
+                                $pageTab->getPostTypeIdField(),
+                                '=',
+                                $page[$pageTab->getPostTypeIdField()],
+                            ],
+                            [
+                                $pageTab->getPostIdField(),
+                                '>',
+                                $page[$pageTab->getPostIdField()],
+                            ],
+
+                        ])->order($pageTab->getPostIdField(), 'asc')->find();
+                        if ($next)
+                        {
+                            $prve_next_item[] = [
+                                "href"    => $next[$pageTab->getUrlField()],
+                                "caption" => [
+                                    E::strong("[下一篇]: "),
+                                    $next[$pageTab->getTitleField()],
+                                ],
+                            ];
+                        }
+
+                        $prve_next = E::AListWithCaption1($prve_next_item, false);
+
+                        $this->style->updateDetailPage($post, $page, $prve_next, $files);
+
+                        $mission = new TelegraphMission();
+                        $mission->setTimeout($this->telegraphTimeout);
+                        $mission->token      = $token;
+                        $mission->detailPage = $page;
+                        $mission->title      = $title;
+
+                        if (!is_null($this->telegraphProxy))
+                        {
+                            $mission->setProxy($this->telegraphProxy);
+                        }
+
+                        $mission->setAccessToken($token);
+                        $mission->editPage($page['path'], $this->makePageName($title), $this->style->toJson(), true);
+
+                        $this->missionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
+                        $this->missionManager->logInfo(implode([
+                            'updateDetailPageToQueue，',
+                            '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
+                            '标题:' . $mission->title . '，',
+                            'url: ' . $mission->detailPage[$pageTab->getUrlField()],
+                        ]));
+                        $this->updateDetailPageQueue->addNewMission($mission);
+                    }
+
+                }, 'webpages.' . $pageTab->getPkField());
+
+        }
+
+        public function listenUpdateDetailPage(): void
+        {
+            $queue = $this->updateDetailPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $typeTab = $this->getTypeTable();
+                $postTab = $this->getPostTable();
+                $pageTab = $this->getPagesTable();
+
+                if ($result['ok'])
+                {
+                    $this->missionManager->logInfo(implode([
+                        '更新成功，',
+                        '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
+                        '标题:' . $mission->title . '，',
+                        'url: ' . $mission->detailPage[$pageTab->getUrlField()],
+                    ]));
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+        public function updateIndexPageToQueue(): void
+        {
+            $pageTab = $this->getPagesTable();
+            $typeTab = $this->getTypeTable();
+            $postTab = $this->getPostTable();
+            $fileTab = $this->getFileTable();
+
+            $indexPageInfo = $this->getIndexPageInfo();
+            $token         = $indexPageInfo[$pageTab->getTokenField()];
+
+            $this->style->updateIndexPage();
+
+            $mission = new TelegraphMission();
+            $mission->setTimeout($this->telegraphTimeout);
+            $mission->token         = $token;
+            $mission->indexPageInfo = $indexPageInfo;
+
+            if (!is_null($this->telegraphProxy))
+            {
+                $mission->setProxy($this->telegraphProxy);
+            }
+
+            $mission->setAccessToken($token);
+            $mission->editPage($indexPageInfo['path'], $this->brandTitle, $this->style->toJson(), true);
+
+            $this->missionManager->logInfo(implode([
+                'updateIndexPageToQueue，',
+                'url: ' . $indexPageInfo[$pageTab->getUrlField()],
+            ]));
+            $this->updateIndexPageQueue->addNewMission($mission);
+        }
+
+        public function listenUpdateIndexPage(): void
+        {
+            $queue = $this->updateIndexPageQueue;
+
+            $queue->setExitOnfinish(true);
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->maxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(TelegraphMission $mission) {
+                $response = $mission->getResult();
+                $json     = $response->getBody()->getContents();
+                $result   = json_decode($json, true);
+
+                $typeTab = $this->getTypeTable();
+                $postTab = $this->getPostTable();
+                $pageTab = $this->getPagesTable();
+
+                if ($result['ok'])
+                {
+                    $this->missionManager->logInfo(implode([
+                        'updateIndexPageToQueue，',
+                        'url: ' . $mission->indexPageInfo[$pageTab->getUrlField()],
+                    ]));
+                }
+                else
+                {
+                    $this->missionManager->logError($result['error']);
+                }
+            };
+
+            $catch = function(TelegraphMission $mission, \Exception $exception) {
+                $this->missionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->setOnFinish(function(Queue $_this) {
+                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
+            });
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+
+        public function queueMonitor(): void
+        {
+            $this->missionManager->getAllQueueInfoTable();
+        }
+
+        public function getQueueStatus(): array
+        {
+            return $this->missionManager->getAllQueueInfo();
+        }
+
+        public function restoreFailureMission(): void
+        {
+            $this->createAccountQueue->restoreErrorMission();
+            $this->createIndexPageQueue->restoreErrorMission();
+            $this->createFirstTypePageQueue->restoreErrorMission();
+            $this->createDetailPageQueue->restoreErrorMission();
+            $this->createTypeAllPageQueue->restoreErrorMission();
+            $this->updateTypeAllPageQueue->restoreErrorMission();
+            $this->updateDetailPageQueue->restoreErrorMission();
+            $this->updateIndexPageQueue->restoreErrorMission();
+
+            $this->createAccountQueue->restoreTimesReachedMission();
+            $this->createIndexPageQueue->restoreTimesReachedMission();
+            $this->createFirstTypePageQueue->restoreTimesReachedMission();
+            $this->createDetailPageQueue->restoreTimesReachedMission();
+            $this->createTypeAllPageQueue->restoreTimesReachedMission();
+            $this->updateTypeAllPageQueue->restoreTimesReachedMission();
+            $this->updateDetailPageQueue->restoreTimesReachedMission();
+            $this->updateIndexPageQueue->restoreTimesReachedMission();
+        }
+
+        public function setQueueDelayMs(int $queueDelayMs): static
+        {
+            $this->queueDelayMs = $queueDelayMs;
+
+            return $this;
+        }
+
+        public function setTelegraphTimeout(int $telegraphTimeout): static
+        {
+            $this->telegraphTimeout = $telegraphTimeout;
+
+            return $this;
+        }
+
+        public function setBrandTitle(?string $brandTitle): static
+        {
+            $this->brandTitle = $brandTitle;
+
+            return $this;
+        }
+
+        public function setPageRow(int $pageRow): static
+        {
+            $this->pageRow = $pageRow;
+
+            return $this;
+        }
+
+        public function setMaxTimes(int $maxTimes): static
+        {
+            $this->maxTimes = $maxTimes;
+
+            return $this;
+        }
+
+        public function setTelegraphProxy(?string $telegraphProxy): static
+        {
+            $this->telegraphProxy = $telegraphProxy;
+
+            return $this;
+        }
+
+        public function setStyle(?StyleAbstract $style): static
+        {
+            $this->style = $style;
+
+            $this->style->setManager($this);
+
+            return $this;
+        }
+
+        public function getRandToken(): string
+        {
+            $tokens = $this->getCacheManager()->get('telegraph:account_tokens', function($item) {
+                $item->expiresAfter(60);
+                $tab = $this->getAccountTable();
+
+                $tokens = $tab->tableIns()->column($tab->getAccessTokenField());
+
+                return $tokens;
+            });
+
+            return $tokens[rand(0, count($tokens) - 1)];
+        }
+
+        public function getIndexPageInfo(): array
+        {
+            return $this->getCacheManager()->get('$indexPage', function($item) {
+                $item->expiresAfter(60);
+
+                $webPageTab = $this->getPagesTable();
+
+                //index 页面信息
+                return $webPageTab->tableIns()->where([
+                    [
+                        $webPageTab->getPageTypeField(),
+                        '=',
+                        static::PAGE_INDEX,
+                    ],
+                ])->find();
+            });
+        }
+
+        public function getTypeFirstPage(): array
+        {
+            return $this->getCacheManager()->get('telegraph:first_type_page', function($item) {
+                $item->expiresAfter(60);
+
+                $pageTab = $this->getPagesTable();
+                $typeTab = $this->getTypeTable();
+
+                //获取所有分类第一页的记录
+                $typeFirstPage = $pageTab->tableIns()->where([
+                    [
+                        $pageTab->getIsFirstTypePageField(),
+                        '=',
+                        1,
+                    ],
+                    [
+                        $pageTab->getPageTypeField(),
+                        '=',
+                        static::PAGE_TYPE,
+                    ],
+                ])->order($pageTab->getPkField(), 'asc')->select()->toArray();
+
+                $typeFirstPageArr = [];
+                foreach ($typeFirstPage as $k => $v)
+                {
+                    $params = json_decode($v[$pageTab->getParamsField()], true);
+
+                    $typeFirstPageArr[] = [
+                        "href"    => $v[$pageTab->getUrlField()],
+                        "caption" => $params['type'][$typeTab->getNameField()],
+                    ];
+                }
+
+                return $typeFirstPageArr;
+            });
+        }
+
+        public function getRandDetailPages($count = 10): array
+        {
+            $detailPages = $this->getCacheManager()->get('telegraph:rand_detail_page', function($item) {
+                $item->expiresAfter(600);
+
+                $pageTab = $this->getPagesTable();
+
+                $items = $pageTab->tableIns()->where([
+                    [
+                        $pageTab->getPageTypeField(),
+                        '=',
+                        static::PAGE_DETAIL,
+                    ],
+                ])->field(implode(',', [
+                    $pageTab->getUrlField(),
+                    $pageTab->getTitleField(),
+                ]))->select();
+
+                $pagesList = [];
+                foreach ($items as $item)
+                {
+                    $pagesList[] = [
+                        "href"    => $item[$pageTab->getUrlField()],
+                        "caption" => $item[$pageTab->getTitleField()],
+                    ];
+                }
+
+                return $pagesList;
+            });
+
+            $count = min($count, count($detailPages));
+
+            // 获取随机键
+            $randomKeys = array_rand($detailPages, $count);
+
+            // 根据随机键提取元素
+            $randomItems = [];
+            foreach ($randomKeys as $key)
+            {
+                $randomItems[] = $detailPages[$key];
+            }
+
+            return $randomItems;
+        }
+
+        protected function makePageName(string $name): string
+        {
+            $res   = [];
+            $res[] = $name;
+
+            return implode('', $res);
+        }
+
+        protected function makeIndexPageId(): string
+        {
+            return '-';
+        }
+
+        protected function makeTypePageId(string|int $typePkId, string|int $pageNum): string
+        {
+            return $typePkId . '-' . $pageNum;
+
+        }
+
+        protected function makeDetailPageId(string|int $postPkId): string
+        {
+            return (string)$postPkId;
+        }
+
+        protected function initQueue(): static
+        {
+            $this->createAccountQueue       = $this->missionManager->initQueue(static::CREATE_ACCOUNT_QUEUE);
+            $this->createIndexPageQueue     = $this->missionManager->initQueue(static::CREATE_INDEX_PAGE_QUEUE);
+            $this->createFirstTypePageQueue = $this->missionManager->initQueue(static::CREATE_FIRST_TYPE_PAGE_QUEUE);
+            $this->createDetailPageQueue    = $this->missionManager->initQueue(static::CREATE_DETAIL_PAGE_QUEUE);
+            $this->createTypeAllPageQueue   = $this->missionManager->initQueue(static::CREATE_TYPE_ALL_PAGE_QUEUE);
+            $this->updateTypeAllPageQueue   = $this->missionManager->initQueue(static::UPDATE_TYPE_ALL_PAGE_QUEUE);
+            $this->updateDetailPageQueue    = $this->missionManager->initQueue(static::UPDATE_DETAIL_PAGE_QUEUE);
+            $this->updateIndexPageQueue     = $this->missionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
+
+            return $this;
+        }
+
+        public static function truncateUtf8String($string, $length): string
+        {
+            // 使用 mb_substr 来截取字符串，确保是按字符而非字节截取
+            return mb_substr($string, 0, $length, 'UTF-8');
+        }
+
+        protected function isIndexPageCreated(): bool
+        {
+            $pagesTable = $this->getPagesTable();
+
+            return !!$pagesTable->tableIns()
+                ->where($pagesTable->getIdentificationField(), '=', $this->makeIndexPageId())
+                ->where($pagesTable->getPageTypeField(), '=', static::PAGE_INDEX)->find();
+        }
+
+        protected function isTypePageCreated(string|int $typePkId, string|int $pageNum): bool
+        {
+            $detailIdentifications = $this->getCacheManager()
+                ->get('telegraph:type_page_identifications', function($item) {
+                    $item->expiresAfter(120);
+                    $pagesTable = $this->getPagesTable();
+
+                    $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_TYPE)
+                        ->column($pagesTable->getIdentificationField());
+
+                    return $ids;
+                });
+
+            return in_array($this->makeTypePageId($typePkId, $pageNum), $detailIdentifications);
+        }
+
+        protected function isDetailPageCreated(string|int $postPkId): bool
+        {
+            $detailIdentifications = $this->getCacheManager()
+                ->get('telegraph:detail_page_identifications', function($item) {
+                    $item->expiresAfter(120);
+                    $pagesTable = $this->getPagesTable();
+
+                    $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_DETAIL)
+                        ->column($pagesTable->getIdentificationField());
+
+                    return $ids;
+                });
+
+            return in_array($this->makeDetailPageId($postPkId), $detailIdentifications);
+        }
+
+        /*
+        *
+        * ------------------------------------------------------
+        * 公共
+        * ------------------------------------------------------
+        *
+        */
+
+        public function isDebug(): bool
+        {
+            return $this->debug;
+        }
+
+        public function setDebug(bool $debug): void
+        {
+            $this->debug = $debug;
+        }
+
+        public function getContainer(): Container
+        {
+            return $this->container;
+        }
+
+        public function getAllTableStatus(): array
+        {
+            $data = [];
+
+            $a                                         = $this->getMessageTable()->isTableCerated();
+            $data[$this->getMessageTable()->getName()] = [
+                'is_created' => (int)$a,
+                'count'      => $a ? (int)$this->getMessageTable()->getCount() : 0,
+            ];
+
+            $b                                      = $this->getTypeTable()->isTableCerated();
+            $data[$this->getTypeTable()->getName()] = [
+                'is_created' => (int)$b,
+                'count'      => $b ? (int)$this->getTypeTable()->getCount() : 0,
+            ];
+
+            $c                                      = $this->getFileTable()->isTableCerated();
+            $data[$this->getFileTable()->getName()] = [
+                'is_created' => (int)$c,
+                'count'      => $c ? (int)$this->getFileTable()->getCount() : 0,
+            ];
+
+            $d                                      = $this->getPostTable()->isTableCerated();
+            $data[$this->getPostTable()->getName()] = [
+                'is_created' => (int)$d,
+                'count'      => $d ? (int)$this->getPostTable()->getCount() : 0,
+            ];
+
+            $e                                         = $this->getAccountTable()->isTableCerated();
+            $data[$this->getAccountTable()->getName()] = [
+                'is_created' => (int)$e,
+                'count'      => $e ? (int)$this->getAccountTable()->getCount() : 0,
+            ];
+
+            $f                                       = $this->getPagesTable()->isTableCerated();
+            $data[$this->getPagesTable()->getName()] = [
+                'is_created' => (int)$f,
+                'count'      => $f ? (int)$this->getPagesTable()->getCount() : 0,
+            ];
+
+            return $data;
+        }
+
+        public function enableEchoHandler(): static
+        {
+            $this->missionManager->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            $this->getMysqlClient()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            $this->getDownloadMediaScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            $this->getToFileMoveScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            $this->getMigrationScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            $this->getTelegramBotApi()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
+
+            return $this;
+        }
+
+        public function enableRedisHandler(string $redisHost = '127.0.0.1', int $redisPort = 6379, string $password = '', int $db = 10, string $logName = 'redis_log'): static
+        {
+            $this->missionManager->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-manager', callback: $this->missionManager::getStandardFormatter());
+
+            $this->getMysqlClient()
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MysqlClient', callback: $this->missionManager::getStandardFormatter());
+
+            $this->getDownloadMediaScanner()
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-DownloadMediaScanner', callback: $this->missionManager::getStandardFormatter());
+
+            $this->getToFileMoveScanner()
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-ToFileMoveScanner', callback: $this->missionManager::getStandardFormatter());
+
+            $this->getMigrationScanner()
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MigrationScanner', callback: $this->missionManager::getStandardFormatter());
+
+            $this->getTelegramBotApi()
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-TelegramBotApi', callback: $this->missionManager::getStandardFormatter());
+
+            return $this;
+        }
+
         private function envCheck(): void
         {
             // 检查 PHP 版本
@@ -1488,78 +2990,6 @@
                 throw new \Exception('This application must run on a system compatible with CentOS (like Fedora).');
             }
 
-        }
-
-
-        /*
-         *
-         * ---------------------------------------------------------
-         *
-         * */
-
-        public function isIndexPageCreated(): bool
-        {
-            $pagesTable = $this->getPagesTable();
-
-            return !!$pagesTable->tableIns()
-                ->where($pagesTable->getIdentificationField(), '=', $this->makeIndexPageId())
-                ->where($pagesTable->getPageTypeField(), '=', static::PAGE_INDEX)->find();
-        }
-
-        public function isTypePageCreated(string|int $typeId, string|int $page): bool
-        {
-            $pagesTable = $this->getPagesTable();
-
-            return !!$pagesTable->tableIns()
-                ->where($pagesTable->getIdentificationField(), '=', $this->makeTypePageId($typeId, $page))
-                ->where($pagesTable->getPageTypeField(), '=', static::PAGE_TYPE)->find();
-        }
-
-        public function isDetailPageCreated(string|int $pageId): bool
-        {
-            $pagesTable = $this->getPagesTable();
-
-            return !!$pagesTable->tableIns()
-                ->where($pagesTable->getIdentificationField(), '=', $this->makeDetailPageId($pageId))
-                ->where($pagesTable->getPageTypeField(), '=', static::PAGE_DETAIL)->find();
-        }
-
-        protected function makeIndexPageId(): string
-        {
-            return '-';
-        }
-
-        protected function makeTypePageId(string|int $typeId, string|int $page): string
-        {
-            return $typeId . '-' . $page;
-
-        }
-
-        protected function makeDetailPageId(string|int $pageId): string
-        {
-            return (string)$pageId;
-        }
-
-        protected function makeMediaGroupCountName($mediaGroupId): string
-        {
-            return 'media_group_count:' . $mediaGroupId;
-        }
-
-        protected function incMediaGroupCount($mediaGroupId): static
-        {
-            $this->getRedisClient()->incr($this->makeMediaGroupCountName($mediaGroupId));
-
-            return $this;
-        }
-
-        protected function getMediaGroupCount($mediaGroupId): int
-        {
-            return (int)$this->getRedisClient()->get($this->makeMediaGroupCountName($mediaGroupId));
-        }
-
-        protected function deleteMediaGroupCount($mediaGroupId): int
-        {
-            return (int)$this->getRedisClient()->del($this->makeMediaGroupCountName($mediaGroupId));
         }
 
     }
