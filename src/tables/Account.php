@@ -21,7 +21,6 @@
             "time"         => "`__FIELD__NAME__` INT (10) UNSIGNED NOT NULL DEFAULT '0',",
         ];
 
-
         public function setShortNameField(string $value): static
         {
             $this->setFeildName('short_name', $value);

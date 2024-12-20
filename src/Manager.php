@@ -51,7 +51,6 @@
 
         protected ?Container $container             = null;
         protected array      $tables                = [];
-        protected array      $typeMap               = [];
         protected ?string    $tempJsonPath          = null;
         protected ?string    $mediaStorePath        = null;
         protected ?string    $telegramBotApiPath    = null;
@@ -123,7 +122,6 @@
         protected array $whereFileStatus1Downloading;
         protected array $whereFileStatus2FileMoved;
         protected array $whereFileStatus3InPosted;
-
 
         /*
          *
@@ -266,18 +264,19 @@
             return $this;
         }
 
-        public function setTypeMap(array $typeMap): static
-        {
-            $this->typeMap = $typeMap;
-
-            return $this;
-        }
-
         public function getTypeIdBySender($sender): int
         {
-            if (isset($this->typeMap[$sender]))
+            $typeMap = $this->getTypes();
+
+            $map = [];
+            foreach ($typeMap as $k => $v)
             {
-                return $this->typeMap[$sender];
+                $map[$v[$this->getTypeTable()->getGroupIdField()]] = $v[$this->getTypeTable()->getPkField()];
+            }
+
+            if (isset($map[$sender]))
+            {
+                return $map[$sender];
             }
 
             return -1;
@@ -407,10 +406,8 @@
                     $msgTable = $this->getMessageTable();
                     //没有文件的信息直接设置状态为2，不用处理文件
                     //getFileIdField 为空，并且getFileStatusField为0的
-                    $msgTable->tableIns()
-                        ->where($msgTable->getFileIdField(), '=', '')
-                        ->where($this->whereFileStatus0WaitingDownload)
-                        ->update([
+                    $msgTable->tableIns()->where($msgTable->getFileIdField(), '=', '')
+                        ->where($this->whereFileStatus0WaitingDownload)->update([
                             $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
                         ]);
 
@@ -453,8 +450,7 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($this->whereFileStatus0WaitingDownload)
-                        ->limit(0, $this->maxDownloading - $downloading)
+                    ]))->where($this->whereFileStatus0WaitingDownload)->limit(0, $this->maxDownloading - $downloading)
                         ->order($msgTable->getPkField())->select();
 
                     $data1 = $data1->toArray();
@@ -807,7 +803,7 @@
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 100)
+                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 500)
                         ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
@@ -1531,7 +1527,6 @@
         {
             $queue = $this->createAccountQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -1586,10 +1581,6 @@
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
 
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
-
             $queue->listen();
         }
 
@@ -1624,7 +1615,6 @@
         {
             $queue = $this->createIndexPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -1690,10 +1680,6 @@
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
 
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
-
             $queue->listen();
         }
 
@@ -1702,10 +1688,7 @@
         {
             $typeTab = $this->getTypeTable();
 
-            $types = $typeTab->tableIns()->field(implode(',', [
-                $typeTab->getPkField(),
-                $typeTab->getNameField(),
-            ]))->select();
+            $types = $this->getTypes();
 
             foreach ($types as $k => $type)
             {
@@ -1744,7 +1727,6 @@
         {
             $queue = $this->createFirstTypePageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -1814,10 +1796,6 @@
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
 
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
-
             $queue->listen();
         }
 
@@ -1880,7 +1858,6 @@
         {
             $queue = $this->createDetailPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -1940,7 +1917,7 @@
                             $title = '无标题贴';
                         }
 
-                        $this->missionManager->logInfo('ok-' . $title);
+                        $this->missionManager->logInfo('ok-' . $this->makePageName($title));
                     }
                     else
                     {
@@ -1959,10 +1936,6 @@
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
-
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
 
             $queue->listen();
         }
@@ -2074,7 +2047,6 @@
         {
             $queue = $this->createTypeAllPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -2146,10 +2118,6 @@
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
 
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
-
             $queue->listen();
         }
 
@@ -2185,7 +2153,7 @@
             {
                 $params   = json_decode($typePage[$pageTab->getParamsField()], true);
                 $typeInfo = $params['type'];
-                $title    = $typeInfo[$this->getTypeTable()->getNameField()];
+                $title    = $this->makePageName($typeInfo[$this->getTypeTable()->getNameField()]);
 
                 //分页按钮
                 $pageUrls = $pageTab->tableIns()->where($wherePageType)->where([
@@ -2252,7 +2220,7 @@
                 }
 
                 $mission->setAccessToken($token);
-                $mission->editPage($typePage[$pageTab->getPathField()], $this->makePageName($title), $this->style->toJson(), true);
+                $mission->editPage($typePage[$pageTab->getPathField()], $title, $this->style->toJson(), true);
 
                 $this->missionManager->logInfo(implode([
                     'updateTypeAllPageToQueue，',
@@ -2271,7 +2239,6 @@
         {
             $queue = $this->updateTypeAllPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -2308,10 +2275,6 @@
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
-
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
 
             $queue->listen();
         }
@@ -2351,6 +2314,7 @@
                         {
                             $title = '无标题贴';
                         }
+                        $title = $this->makePageName($title);
 
                         $files = $fileTab->tableIns()->where([
                             [
@@ -2426,7 +2390,7 @@
                         }
 
                         $mission->setAccessToken($token);
-                        $mission->editPage($page['path'], $this->makePageName($title), $this->style->toJson(), true);
+                        $mission->editPage($page['path'], $title, $this->style->toJson(), true);
 
                         $this->missionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
                         $this->missionManager->logInfo(implode([
@@ -2446,7 +2410,6 @@
         {
             $queue = $this->updateDetailPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -2483,10 +2446,6 @@
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
-
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
 
             $queue->listen();
         }
@@ -2528,7 +2487,6 @@
         {
             $queue = $this->updateIndexPageQueue;
 
-            $queue->setExitOnfinish(true);
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->queueDelayMs);
             $queue->setEnable(true);
@@ -2563,10 +2521,6 @@
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
-
-            $queue->setOnFinish(function(Queue $_this) {
-                $this->missionManager->logDebug($_this->getName() . ' 任务执行完毕');
-            });
 
             $queue->listen();
         }
@@ -2683,7 +2637,7 @@
                         '=',
                         static::PAGE_INDEX,
                     ],
-                ])->find();
+                ])->findOrEmpty();
             });
         }
 
@@ -2769,10 +2723,28 @@
             return $randomItems;
         }
 
+
+        public function getTypes()
+        {
+            $types = $this->getCacheManager()->get('telegraph:types', function($item) {
+                $item->expiresAfter(600);
+
+                $typeTab = $this->getTypeTable();
+
+                return $typeTab->tableIns()->field(implode(',', [
+                    $typeTab->getPkField(),
+                    $typeTab->getNameField(),
+                    $typeTab->getGroupIdField(),
+                ]))->select();
+            });
+
+            return $types;
+        }
+
         protected function makePageName(string $name): string
         {
             $res   = [];
-            $res[] = $name;
+            $res[] = preg_replace('#[\r\n]+#iu', ' ', $name);
 
             return implode('', $res);
         }
@@ -2807,12 +2779,6 @@
             return $this;
         }
 
-        public static function truncateUtf8String($string, $length): string
-        {
-            // 使用 mb_substr 来截取字符串，确保是按字符而非字节截取
-            return mb_substr($string, 0, $length, 'UTF-8');
-        }
-
         protected function isIndexPageCreated(): bool
         {
             $pagesTable = $this->getPagesTable();
@@ -2826,7 +2792,7 @@
         {
             $detailIdentifications = $this->getCacheManager()
                 ->get('telegraph:type_page_identifications', function($item) {
-                    $item->expiresAfter(120);
+                    $item->expiresAfter(3);
                     $pagesTable = $this->getPagesTable();
 
                     $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_TYPE)
@@ -2842,7 +2808,7 @@
         {
             $detailIdentifications = $this->getCacheManager()
                 ->get('telegraph:detail_page_identifications', function($item) {
-                    $item->expiresAfter(120);
+                    $item->expiresAfter(3);
                     $pagesTable = $this->getPagesTable();
 
                     $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_DETAIL)
@@ -2990,6 +2956,13 @@
                 throw new \Exception('This application must run on a system compatible with CentOS (like Fedora).');
             }
 
+        }
+
+
+        public static function truncateUtf8String($string, $length): string
+        {
+            // 使用 mb_substr 来截取字符串，确保是按字符而非字节截取
+            return mb_substr($string, 0, $length, 'UTF-8');
         }
 
     }

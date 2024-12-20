@@ -54,7 +54,8 @@
             $this->addTypeNav();
             $this->addAdv();
 
-            $eles = [//                E::splitLine('-'),
+            $eles = [
+                //                E::splitLine('-'),
             ];
 
             $this->importPageElements($eles);
@@ -75,14 +76,14 @@
 
             $eles = [
                 E::h4($title),
+                E::strong('页码: '),
 
                 E::AListWithCaption3($pageButtons, '[__CAPTION__]', true, ' '),
                 E::br(),
-                E::splitLine('-'),
 
                 E::AListWithCaption1($contentsList, true),
 
-                E::splitLine('-'),
+                E::strong('页码: '),
                 E::AListWithCaption3($pageButtons, '[__CAPTION__]', true, ' '),
             ];
 
@@ -109,7 +110,7 @@
 
             $contents = $postInfo[$postTable->getContentsField()];
 
-            $title = '无标题贴';
+            $title = '无标题';
             if ($contents)
             {
                 $title = $this->manager::truncateUtf8String($contents, 30);
@@ -165,7 +166,13 @@
 
             if ($contents)
             {
-                $this->addPageElements(E::p($contents));
+                $lines = preg_split('#[\r\n]+#iu', $contents, -1, PREG_SPLIT_NO_EMPTY);
+
+                foreach ($lines as $k => $line)
+                {
+                    $line = trim($line);
+                    $this->addPageElements(E::p($line));
+                }
 
                 //youtube
                 preg_match_all('%https://www\.youtube\.com/watch\?v=[\da-z\-]+%sim', $contents, $result, PREG_PATTERN_ORDER);
