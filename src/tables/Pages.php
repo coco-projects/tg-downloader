@@ -38,8 +38,8 @@
         protected array $indexSentence = [
             "page_type"                => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "is_first_type_page"       => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "collection_type_id"       => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
-            "collection_id"            => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "post_type_id"             => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "post_id"                  => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "page_num"                 => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "account"                  => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "identification,page_type" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",

@@ -116,8 +116,9 @@
                 $title = $this->manager::truncateUtf8String($contents, 30);
             }
 
-            $typeName = $page['type_name'];
+            $title = preg_replace('#[\r\n]+#iu', ' ', $title);
 
+            $typeName = $page['type_name'];
             $this->addPageElements($prve_next);
             $this->addPageElements(E::splitLine());
 
@@ -206,7 +207,6 @@
                         $this->addPageElements(E::twitter($url, $url));
                     }
                 }
-
             }
 
             if (count($imgs))

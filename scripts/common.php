@@ -42,7 +42,7 @@
      * */
     $manager->initRedis(db: 2);
 
-    $manager->initMysql(db: 'ithinkphp_telegraph_test01');
+    $manager->initMysql(db: 'ithinkphp_telegraph_test');
 //    $manager->initMysql('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
 
     $manager->initTelegramBotApi(apiId: $config['apiId'], apiHash: $config['apiHash']);
