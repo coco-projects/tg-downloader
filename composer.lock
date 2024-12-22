@@ -47,16 +47,16 @@
         },
         {
             "name": "coco-project/command-builder",
-            "version": "v1.0.14",
+            "version": "v1.0.16",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/command-builder.git",
-                "reference": "843f50601c0930f6072f1a271f35903edb632eeb"
+                "reference": "532227f28d39b885d6d4fe5659704ac6c3b6cd98"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/command-builder/zipball/843f50601c0930f6072f1a271f35903edb632eeb",
-                "reference": "843f50601c0930f6072f1a271f35903edb632eeb",
+                "url": "https://api.github.com/repos/coco-projects/command-builder/zipball/532227f28d39b885d6d4fe5659704ac6c3b6cd98",
+                "reference": "532227f28d39b885d6d4fe5659704ac6c3b6cd98",
                 "shasum": ""
             },
             "require": {
@@ -80,9 +80,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/command-builder/issues",
-                "source": "https://github.com/coco-projects/command-builder/tree/v1.0.14"
+                "source": "https://github.com/coco-projects/command-builder/tree/v1.0.16"
             },
-            "time": "2024-11-24T06:10:59+00:00"
+            "time": "2024-12-22T04:21:25+00:00"
         },
         {
             "name": "coco-project/command-runner",

@@ -20,7 +20,7 @@
     $manager->setDebug(true);
     $manager->setMaxDownloading(6);
     $manager->setDownloadDelayInSecond(2);
-    $manager->setMaxDownloadTimeout(3600);
+    $manager->setMaxDownloadTimeout(100);
     $manager->setMediaOwner('www');
     //$manager->setMediaStorePath(__DIR__ . '/medias');
 
@@ -42,7 +42,7 @@
      * */
     $manager->initRedis(db: 2);
 
-    $manager->initMysql(db: 'ithinkphp_telegraph_test');
+    $manager->initMysql(db: 'ithinkphp_telegraph_test01');
 //    $manager->initMysql('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
 
     $manager->initTelegramBotApi(apiId: $config['apiId'], apiHash: $config['apiHash']);

@@ -404,11 +404,22 @@
                     }
 
                     $msgTable = $this->getMessageTable();
+
                     //没有文件的信息直接设置状态为2，不用处理文件
                     //getFileIdField 为空，并且getFileStatusField为0的
                     $msgTable->tableIns()->where($msgTable->getFileIdField(), '=', '')
-                        ->where($this->whereFileStatus0WaitingDownload)->update([
+                        ->where($this->whereFileStatus0WaitingDownload)
+                        ->update([
                             $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
+                        ]);
+
+                    //下载超时失败的任务，重置状态后继续下载
+                    $msgTable->tableIns()
+                        ->where($msgTable->getDownloadTimeField(), '<', time() - $this->maxDownloadTimeout)
+                        ->where($this->whereFileStatus1Downloading)
+                        ->update([
+                            $msgTable->getFileStatusField()   => static::FILE_STATUS_0_WAITING_DOWNLOAD,
+                            $msgTable->getDownloadTimeField() => 0,
                         ]);
 
                     /**
@@ -445,34 +456,16 @@
                      * getFileStatusField 为 0,并且 path 为空，每次获取 maxDownloading 个
                      *
                      * --------------*/
-                    $data1 = $msgTable->tableIns()->field(implode(',', [
+                    $data = $msgTable->tableIns()->field(implode(',', [
                         $msgTable->getPkField(),
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($this->whereFileStatus0WaitingDownload)->limit(0, $this->maxDownloading - $downloading)
+                    ]))->where($this->whereFileStatus0WaitingDownload)
+                        ->limit(0, $this->maxDownloading - $downloading)
                         ->order($msgTable->getPkField())->select();
 
-                    $data1 = $data1->toArray();
-
-                    /*
-                     * 获取所有下载时间超时 maxDownloadTimeout,并且状态还是下载中的记录, getFileStatusField 为 1
-                     *
-                     * --------------*/
-
-                    $t = $msgTable->tableIns()->field(implode(',', [
-                        $msgTable->getPkField(),
-                        $msgTable->getFileIdField(),
-                        $msgTable->getDownloadTimeField(),
-                        $msgTable->getFileSizeField(),
-                    ]))->where($msgTable->getDownloadTimeField(), '>', 0)
-                        ->where($msgTable->getDownloadTimeField(), '<', time() - $this->maxDownloadTimeout)
-                        ->where($this->whereFileStatus1Downloading)->limit(0, $this->maxDownloading - $downloading)
-                        ->order($msgTable->getPkField())
-//                         ->fetchSql(true)
-                        ->select();
-
-                    $data2 = $t->toArray();
+                    $data = $data->toArray();
 
                     /**
                      * ---------------------------------------
@@ -480,7 +473,6 @@
                      * ---------------------------------------
                      */
 
-                    $data = array_merge($data1, $data2);
                     $ids  = [];
 
                     foreach ($data as $k => $v)
@@ -490,14 +482,17 @@
 
                     //更新下载状态和开始下载时间
                     $timeNow = time();
-                    $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
+                    $msgTable->tableIns()
+                        ->where($msgTable->getPkField(), 'in', $ids)
+                        ->update([
                         $msgTable->getFileStatusField()   => static::FILE_STATUS_1_DOWNLOADING,
                         $msgTable->getDownloadTimeField() => $timeNow,
                     ]);
 
                     //更新下载次数
-                    $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)
-                        ->inc($msgTable->getDownloadTimesField(), 1);
+                    $msgTable->tableIns()
+                        ->where($msgTable->getPkField(), 'in', $ids)
+                        ->inc($msgTable->getDownloadTimesField(), 1)->update();
 
                     return $data;
                 });
