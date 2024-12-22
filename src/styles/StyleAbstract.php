@@ -121,7 +121,7 @@
             {
                 return static::FILE_IMAGE;
             }
-            elseif (preg_match('#(?:mp4|webm|ogg|avi|mov|mkv|flv|3gp|wmv)$#', strtolower($meta)))
+            elseif (preg_match('#(?:mp4|webm|ogg)$#', strtolower($meta)))
             {
                 return static::FILE_VIDEO;
             }

@@ -49,7 +49,7 @@
 
     $manager->initTelegramApiGuzzle();
 
-    $manager->enableRedisHandler(db: 2, logName: 'te-download-log');
+    $manager->enableRedisHandler(db: 2);
     $manager->enableEchoHandler();
 
     /*

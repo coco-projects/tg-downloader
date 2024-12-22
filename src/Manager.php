@@ -60,6 +60,8 @@
         protected int        $downloadDelayInSecond = 1;
         protected ?string    $webHookUrl            = null;
         protected ?string    $mediaOwner            = 'www';
+        protected ?string    $logName               = 'tg-downloader';
+
 
         protected ?string $messageTableName = null;
         protected ?string $postTableName    = null;
@@ -408,16 +410,14 @@
                     //没有文件的信息直接设置状态为2，不用处理文件
                     //getFileIdField 为空，并且getFileStatusField为0的
                     $msgTable->tableIns()->where($msgTable->getFileIdField(), '=', '')
-                        ->where($this->whereFileStatus0WaitingDownload)
-                        ->update([
+                        ->where($this->whereFileStatus0WaitingDownload)->update([
                             $msgTable->getFileStatusField() => static::FILE_STATUS_2_MOVED,
                         ]);
 
                     //下载超时失败的任务，重置状态后继续下载
                     $msgTable->tableIns()
                         ->where($msgTable->getDownloadTimeField(), '<', time() - $this->maxDownloadTimeout)
-                        ->where($this->whereFileStatus1Downloading)
-                        ->update([
+                        ->where($this->whereFileStatus1Downloading)->update([
                             $msgTable->getFileStatusField()   => static::FILE_STATUS_0_WAITING_DOWNLOAD,
                             $msgTable->getDownloadTimeField() => 0,
                         ]);
@@ -461,8 +461,7 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($this->whereFileStatus0WaitingDownload)
-                        ->limit(0, $this->maxDownloading - $downloading)
+                    ]))->where($this->whereFileStatus0WaitingDownload)->limit(0, $this->maxDownloading - $downloading)
                         ->order($msgTable->getPkField())->select();
 
                     $data = $data->toArray();
@@ -473,7 +472,7 @@
                      * ---------------------------------------
                      */
 
-                    $ids  = [];
+                    $ids = [];
 
                     foreach ($data as $k => $v)
                     {
@@ -482,16 +481,13 @@
 
                     //更新下载状态和开始下载时间
                     $timeNow = time();
-                    $msgTable->tableIns()
-                        ->where($msgTable->getPkField(), 'in', $ids)
-                        ->update([
+                    $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)->update([
                         $msgTable->getFileStatusField()   => static::FILE_STATUS_1_DOWNLOADING,
                         $msgTable->getDownloadTimeField() => $timeNow,
                     ]);
 
                     //更新下载次数
-                    $msgTable->tableIns()
-                        ->where($msgTable->getPkField(), 'in', $ids)
+                    $msgTable->tableIns()->where($msgTable->getPkField(), 'in', $ids)
                         ->inc($msgTable->getDownloadTimesField(), 1)->update();
 
                     return $data;
@@ -2189,7 +2185,7 @@
                 ])->field(implode(',', [
                     $pageTab->getUrlField(),
                     $pageTab->getTitleField(),
-                ]))->order($pageTab->getPostIdField(), 'asc')->paginate([
+                ]))->order($pageTab->getPostIdField(), 'desc')->paginate([
                     'list_rows' => $this->pageRow,
                     'page'      => $typePage[$pageTab->getPageNumField()],
                 ]);
@@ -2898,26 +2894,51 @@
             return $this;
         }
 
-        public function enableRedisHandler(string $redisHost = '127.0.0.1', int $redisPort = 6379, string $password = '', int $db = 10, string $logName = 'redis_log'): static
+        public function enableRedisHandler(string $redisHost = '127.0.0.1', int $redisPort = 6379, string $password = '', int $db = 10): static
         {
-            $this->missionManager->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-manager', callback: $this->missionManager::getStandardFormatter());
+            $this->missionManager->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MissionManager', callback: $this->missionManager::getStandardFormatter());
 
             $this->getMysqlClient()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MysqlClient', callback: $this->missionManager::getStandardFormatter());
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MysqlClient', callback: $this->missionManager::getStandardFormatter());
 
             $this->getDownloadMediaScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-DownloadMediaScanner', callback: $this->missionManager::getStandardFormatter());
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':DownloadMediaScanner', callback: $this->missionManager::getStandardFormatter());
 
             $this->getToFileMoveScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-ToFileMoveScanner', callback: $this->missionManager::getStandardFormatter());
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':ToFileMoveScanner', callback: $this->missionManager::getStandardFormatter());
 
             $this->getMigrationScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-MigrationScanner', callback: $this->missionManager::getStandardFormatter());
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MigrationScanner', callback: $this->missionManager::getStandardFormatter());
 
             $this->getTelegramBotApi()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $logName . '-TelegramBotApi', callback: $this->missionManager::getStandardFormatter());
+                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':TelegramBotApi', callback: $this->missionManager::getStandardFormatter());
 
             return $this;
+        }
+
+        public function deleteRedisLog(): void
+        {
+            $redis = $this->getRedisClient();
+
+            $pattern = $this->logName . ':*';
+
+            // 扫描并删除符合条件的键
+            $cursor = 0;
+            do
+            {
+                // 使用 SCAN 命令扫描键
+                $result = $redis->scan($cursor, $pattern);
+                $cursor = $result[0];     // 更新游标
+                $keys   = $result[1];     // 获取匹配的键
+
+                // 如果有匹配的键，则删除
+                if (!empty($keys))
+                {
+                    $redis->del($keys);  // 删除匹配的键
+                }
+
+                // 如果游标为 0，表示扫描结束
+            } while ($cursor != 0);
         }
 
         private function envCheck(): void
