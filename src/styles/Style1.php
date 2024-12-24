@@ -113,7 +113,7 @@
             $title = '无标题';
             if ($contents)
             {
-                $title = $this->manager::truncateUtf8String($contents, 30);
+                $title = $this->manager::truncateUtf8String($contents, 50);
             }
 
             $title = preg_replace('#[\r\n]+#iu', ' ', $title);
@@ -129,9 +129,6 @@
             $videos    = [];
             $imgs      = [];
             $documents = [];
-            $youtubes  = [];
-            $twitters  = [];
-            $vimeos    = [];
 
             foreach ($files as $k => $file)
             {

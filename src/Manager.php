@@ -42,26 +42,28 @@
 
     class Manager
     {
+        protected ?Container $container      = null;
+        protected bool       $debug          = false;
+        protected bool       $enableRedisLog = false;
+        protected bool       $enableEchoLog  = false;
+        protected array      $tables         = [];
 
-        /*
-         *
-         * ------------------------------------------------------
-         *
-         */
+        protected string $redisHost     = '127.0.0.1';
+        protected string $redisPassword = '';
+        protected int    $redisPort     = 6379;
+        protected int    $redisDb       = 9;
 
-        protected ?Container $container             = null;
-        protected array      $tables                = [];
-        protected ?string    $tempJsonPath          = null;
-        protected ?string    $mediaStorePath        = null;
-        protected ?string    $telegramBotApiPath    = null;
-        protected bool       $debug                 = false;
-        protected int        $maxDownloading        = 10;
-        protected int        $maxDownloadTimeout    = 360000;
-        protected int        $downloadDelayInSecond = 1;
-        protected ?string    $webHookUrl            = null;
-        protected ?string    $mediaOwner            = 'www';
-        protected ?string    $logName               = 'tg-downloader';
+        protected string $mysqlDb;
+        protected string $mysqlHost     = '127.0.0.1';
+        protected string $mysqlUsername = 'root';
+        protected string $mysqlPassword = 'root';
+        protected int    $mysqlPort     = 3306;
 
+        protected ?string $apiHash;
+        protected ?string $apiId;
+
+        protected ?string $mediaOwner = 'www';
+        protected ?string $logNamespace;
 
         protected ?string $messageTableName = null;
         protected ?string $postTableName    = null;
@@ -70,10 +72,27 @@
         protected ?string $accountTableName = null;
         protected ?string $pagesTableName   = null;
 
+        /*
+         *
+         * ------------------------------------------------------
+         *
+         */
+
         const DOWNLOAD_LOCK_KEY      = 'download_lock_key';
         const SCANNER_DOWNLOAD_MEDIA = 'download_media';
         const SCANNER_FILE_MOVE      = 'file_move';
         const SCANNER_MIGRATION      = 'migration';
+
+        protected ?string $telegramTempJsonPath               = null;
+        protected ?string $telegramMediaStorePath             = null;
+        protected ?string $telegramBotApiPath                 = null;
+        protected int     $telegramMediaMaxDownloading        = 10;
+        protected int     $telegramMediaMaxDownloadTimeout    = 360000;
+        protected int     $telegramMediaDownloadDelayInSecond = 1;
+        protected ?string $telegramWebHookUrl                 = null;
+
+        protected int $localServerPort = 8081;
+        protected int $statisticsPort  = 8082;
 
         /*
          *
@@ -108,29 +127,24 @@
         public Queue $updateDetailPageQueue;
         public Queue $updateIndexPageQueue;
 
-        protected int            $pageRow          = 10;
-        protected int            $telegraphTimeout = 30;
-        protected int            $maxTimes         = 10;
-        protected ?string        $brandTitle       = 'telegraph-pages';
-        protected int            $queueDelayMs     = 0;
-        protected ?string        $shortName        = 'bob';
-        protected ?string        $authorName       = 'tily';
-        protected ?string        $authorUrl        = '';
-        protected MissionManager $missionManager;
-        protected ?string        $telegraphProxy   = null;
-        protected ?StyleAbstract $style            = null;
+        protected MissionManager $telegraphQueueMissionManager;
+        protected ?StyleAbstract $telegraphPageStyle      = null;
+        protected int            $telegraphPageRow        = 10;
+        protected int            $telegraphTimeout        = 30;
+        protected int            $telegraphQueueMaxTimes  = 10;
+        protected ?string        $telegraphPageBrandTitle = 'telegraph-pages';
+        protected int            $telegraphQueueDelayMs   = 0;
+        protected ?string        $telegraphPageShortName  = 'bob';
+        protected ?string        $telegraphPageAuthorName = 'tily';
+        protected ?string        $telegraphPageAuthorUrl  = '';
+        protected ?string        $telegraphProxy          = null;
 
         protected array $whereFileStatus0WaitingDownload;
         protected array $whereFileStatus1Downloading;
         protected array $whereFileStatus2FileMoved;
         protected array $whereFileStatus3InPosted;
 
-        /*
-         *
-         * ------------------------------------------------------
-         *
-         */
-        public function __construct(protected string $bootToken, protected int $localServerPort = 8081, protected int $statisticsPort = 8082, protected string $basePath = './data', ?Container $container = null)
+        public function __construct(protected string $bootToken, protected string $basePath, protected string $redisNamespace, ?Container $container = null)
         {
             $this->envCheck();
 
@@ -143,52 +157,14 @@
                 $this->container = new Container();
             }
 
-            $this->missionManager = new MissionManager($this->container);
-            $this->missionManager->setStandardLogger('te-queue-manager');
-
-            $this->basePath = rtrim($this->basePath, '/');
+            $this->logNamespace = $this->redisNamespace . ':tg-log:';
+            $this->basePath     = rtrim($this->basePath, '/');
             is_dir($this->basePath) or mkdir($this->basePath, 0777, true);
             $this->basePath = realpath($this->basePath) . '/';
 
-            $this->tempJsonPath       = $this->basePath . 'json';
-            $this->mediaStorePath     = $this->basePath . 'media';
-            $this->telegramBotApiPath = $this->basePath . 'telegramBotApi';
-
-        }
-
-        public function initCommonProperty(): static
-        {
-            $msgTable                              = $this->getMessageTable();
-            $this->whereFileStatus0WaitingDownload = [
-                [
-                    $msgTable->getFileStatusField(),
-                    '=',
-                    static::FILE_STATUS_0_WAITING_DOWNLOAD,
-                ],
-            ];
-            $this->whereFileStatus1Downloading     = [
-                [
-                    $msgTable->getFileStatusField(),
-                    '=',
-                    static::FILE_STATUS_1_DOWNLOADING,
-                ],
-            ];
-            $this->whereFileStatus2FileMoved       = [
-                [
-                    $msgTable->getFileStatusField(),
-                    '=',
-                    static::FILE_STATUS_2_MOVED,
-                ],
-            ];
-            $this->whereFileStatus3InPosted        = [
-                [
-                    $msgTable->getFileStatusField(),
-                    '=',
-                    static::FILE_STATUS_3_IN_POSTED,
-                ],
-            ];
-
-            return $this;
+            $this->telegramTempJsonPath   = $this->basePath . 'json';
+            $this->telegramMediaStorePath = $this->basePath . 'media';
+            $this->telegramBotApiPath     = $this->basePath . 'telegramBotApi';
         }
 
         /*
@@ -198,22 +174,69 @@
          * ------------------------------------------------------
          *
          */
-
-        public function getTempJsonPath(): ?string
+        public function setDebug(bool $debug): void
         {
-            return $this->tempJsonPath;
+            $this->debug = $debug;
         }
 
-        public function setMediaStorePath(?string $mediaStorePath): static
+        public function setEnableEchoLog(bool $enableEchoLog): static
         {
-            $this->mediaStorePath = $mediaStorePath;
+            $this->enableEchoLog = $enableEchoLog;
 
             return $this;
         }
 
-        public function getMediaStorePath(): ?string
+        public function setEnableRedisLog(bool $enableRedisLog): static
         {
-            return $this->mediaStorePath;
+            $this->enableRedisLog = $enableRedisLog;
+
+            return $this;
+        }
+
+        public function setRedisConfig(string $host = '127.0.0.1', string $password = '', int $port = 6379, int $db = 9): static
+        {
+            $this->redisHost     = $host;
+            $this->redisPassword = $password;
+            $this->redisPort     = $port;
+            $this->redisDb       = $db;
+
+            return $this;
+        }
+
+        public function setMysqlConfig($db, $host = '127.0.0.1', $username = 'root', $password = 'root', $port = 3306): static
+        {
+            $this->mysqlHost     = $host;
+            $this->mysqlPassword = $password;
+            $this->mysqlUsername = $username;
+            $this->mysqlPort     = $port;
+            $this->mysqlDb       = $db;
+
+            return $this;
+        }
+
+        public function setTelegramConfig(string $apiId, string $apiHash): static
+        {
+            $this->apiId   = $apiId;
+            $this->apiHash = $apiHash;
+
+            return $this;
+        }
+
+        public function getTelegramTempJsonPath(): ?string
+        {
+            return $this->telegramTempJsonPath;
+        }
+
+        public function setTelegramMediaStorePath(?string $telegramMediaStorePath): static
+        {
+            $this->telegramMediaStorePath = $telegramMediaStorePath;
+
+            return $this;
+        }
+
+        public function getTelegramMediaStorePath(): ?string
+        {
+            return $this->telegramMediaStorePath;
         }
 
         public function getBootToken(): string
@@ -231,30 +254,30 @@
             return (int)$id;
         }
 
-        public function setMaxDownloading(int $maxDownloading): static
+        public function setTelegramMediaMaxDownloading(int $telegramMediaMaxDownloading): static
         {
-            $this->maxDownloading = $maxDownloading;
+            $this->telegramMediaMaxDownloading = $telegramMediaMaxDownloading;
 
             return $this;
         }
 
-        public function setDownloadDelayInSecond(int $downloadDelayInSecond): static
+        public function setTelegramMediaDownloadDelayInSecond(int $telegramMediaDownloadDelayInSecond): static
         {
-            $this->downloadDelayInSecond = $downloadDelayInSecond;
+            $this->telegramMediaDownloadDelayInSecond = $telegramMediaDownloadDelayInSecond;
 
             return $this;
         }
 
-        public function setMaxDownloadTimeout(int $maxDownloadTimeout): static
+        public function setTelegramMediaMaxDownloadTimeout(int $telegramMediaMaxDownloadTimeout): static
         {
-            $this->maxDownloadTimeout = $maxDownloadTimeout;
+            $this->telegramMediaMaxDownloadTimeout = $telegramMediaMaxDownloadTimeout;
 
             return $this;
         }
 
-        public function setWebHookUrl(?string $webHookUrl): static
+        public function setTelegramWebHookUrl(?string $telegramWebHookUrl): static
         {
-            $this->webHookUrl = $webHookUrl;
+            $this->telegramWebHookUrl = $telegramWebHookUrl;
 
             return $this;
         }
@@ -284,41 +307,16 @@
             return -1;
         }
 
-        /*
-         * ---------------------------------------------------------
-         * */
-
-        // 使用 curl 下载器
-        protected function useCurlDownloader(): static
+        public function setLocalServerPort(int $localServerPort): static
         {
-            $callback = function($data, CallbackMaker $maker_) {
+            $this->localServerPort = $localServerPort;
 
-                foreach ($data as $k => $item)
-                {
-                    $file_id    = $item['file_id'];
-                    $apiUrl     = $this->resolveEndponit('getFile', [
-                        "file_id" => $file_id,
-                    ]);
-                    $outputPath = $this->tempJsonPath . DIRECTORY_SEPARATOR . $item['id'] . '.json';
+            return $this;
+        }
 
-                    $command = Curl::getIns();
-                    $command->silent();
-                    $command->outputToFile(escapeshellarg($outputPath));
-                    $command->setMaxTime($this->maxDownloadTimeout);
-                    $command->url(escapeshellarg($apiUrl));
-
-                    // 创建 curl 命令
-//                    $command = sprintf('curl -s -o %s --max-time %d %s', escapeshellarg($outputPath), $this->maxDownloadTimeout, escapeshellarg($apiUrl));
-
-                    $maker_->getScanner()->logInfo('exec:' . $command);
-
-                    $launcher = new Launcher((string)$command);
-
-                    $launcher->launch();
-                }
-            };
-
-            $this->initDownloadMediaMaker($callback);
+        public function setStatisticsPort(int $statisticsPort): static
+        {
+            $this->statisticsPort = $statisticsPort;
 
             return $this;
         }
@@ -327,35 +325,35 @@
          * ---------------------------------------------------------
          * */
 
-        public function initTheDownloadMediaScanner(): static
+        protected function initTheDownloadMediaScanner(): static
         {
-            is_dir($this->tempJsonPath) or mkdir($this->tempJsonPath, 0777, true);
-            if (!is_dir($this->tempJsonPath))
+            is_dir($this->telegramTempJsonPath) or mkdir($this->telegramTempJsonPath, 0777, true);
+            if (!is_dir($this->telegramTempJsonPath))
             {
-                throw new \Exception('文件夹不存在：' . $this->tempJsonPath);
+                throw new \Exception('文件夹不存在：' . $this->telegramTempJsonPath);
             }
 
-            $this->useCurlDownloader();
+            $this->initDownloadMediaMaker();
             $this->initDownloadMediaScanner();
 
             return $this;
         }
 
-        public function initTheFileMoveScanner(): static
+        protected function initTheFileMoveScanner(): static
         {
-            is_dir($this->mediaStorePath) or mkdir($this->mediaStorePath, 0777, true);
-            if (!is_dir($this->mediaStorePath))
+            is_dir($this->telegramMediaStorePath) or mkdir($this->telegramMediaStorePath, 0777, true);
+            if (!is_dir($this->telegramMediaStorePath))
             {
-                throw new \Exception('文件夹不存在：' . $this->mediaStorePath);
+                throw new \Exception('文件夹不存在：' . $this->telegramMediaStorePath);
             }
 
-            $this->initToFileMoveMaker($this->tempJsonPath);
+            $this->initToFileMoveMaker($this->telegramTempJsonPath);
             $this->initToFileMoveScanner();
 
             return $this;
         }
 
-        public function initTheMigrationScanner(): static
+        protected function initTheMigrationScanner(): static
         {
             $this->initMigrationMaker();
             $this->initMigrationScanner();
@@ -376,33 +374,33 @@
          *
          * @return $this
          */
-        protected function initDownloadMediaMaker(callable $processorCallback): static
+        protected function initDownloadMediaMaker(): static
         {
-            $this->container->set('downloadMediaMaker', function(Container $container) use ($processorCallback) {
+            $this->container->set('downloadMediaMaker', function(Container $container) {
 
                 /*-------------------------------------------*/
                 $maker = new CallbackMaker(function() {
 
                     if ($this->isTelegramBotApiStarted())
                     {
-                        $this->missionManager->logInfo('API服务正常');
+                        $this->telegraphQueueMissionManager->logInfo('API服务正常');
                     }
                     else
                     {
-                        $this->missionManager->logInfo('【------- API服务熄火 -------】');
+                        $this->telegraphQueueMissionManager->logInfo('【------- API服务熄火 -------】');
 
                         return [];
                     }
 
                     while ($this->getRedisClient()->get(static::DOWNLOAD_LOCK_KEY))
                     {
-                        $this->missionManager->logInfo('锁定中，等待...');
+                        $this->telegraphQueueMissionManager->logInfo('锁定中，等待...');
                         usleep(1000 * 250);
                     }
 
-                    if ($this->maxDownloading < 1)
+                    if ($this->telegramMediaMaxDownloading < 1)
                     {
-                        $this->maxDownloading = 1;
+                        $this->telegramMediaMaxDownloading = 1;
                     }
 
                     $msgTable = $this->getMessageTable();
@@ -416,7 +414,7 @@
 
                     //下载超时失败的任务，重置状态后继续下载
                     $msgTable->tableIns()
-                        ->where($msgTable->getDownloadTimeField(), '<', time() - $this->maxDownloadTimeout)
+                        ->where($msgTable->getDownloadTimeField(), '<', time() - $this->telegramMediaMaxDownloadTimeout)
                         ->where($this->whereFileStatus1Downloading)->update([
                             $msgTable->getFileStatusField()   => static::FILE_STATUS_0_WAITING_DOWNLOAD,
                             $msgTable->getDownloadTimeField() => 0,
@@ -436,12 +434,12 @@
                      */
                     $downloadingRemain = $this->getDownloadingRemainCount();
 
-                    $this->missionManager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
+                    $this->telegraphQueueMissionManager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
 
                     //如果正在下载的任务大于等于最大限制
-                    if ($downloading >= $this->maxDownloading)
+                    if ($downloading >= $this->telegramMediaMaxDownloading)
                     {
-                        $this->missionManager->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
+                        $this->telegraphQueueMissionManager->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
 
                         return [];
                     }
@@ -461,8 +459,9 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($this->whereFileStatus0WaitingDownload)->limit(0, $this->maxDownloading - $downloading)
-                        ->order($msgTable->getPkField())->select();
+                    ]))->where($this->whereFileStatus0WaitingDownload)
+                        ->limit(0, $this->telegramMediaMaxDownloading - $downloading)->order($msgTable->getPkField())
+                        ->select();
 
                     $data = $data->toArray();
 
@@ -498,6 +497,46 @@
                 });
 
                 /*-------------------------------------------*/
+
+                $processorCallback = function($data, CallbackMaker $maker_) {
+
+                    foreach ($data as $k => $item)
+                    {
+                        $file_id    = $item['file_id'];
+                        $apiUrl     = $this->resolveEndponit('getFile', [
+                            "file_id" => $file_id,
+                        ]);
+                        $outputPath = $this->telegramTempJsonPath . DIRECTORY_SEPARATOR . $item['id'] . '.json';
+
+                        $command = Curl::getIns();
+                        $command->silent();
+                        $command->outputToFile(escapeshellarg($outputPath));
+                        $command->setMaxTime($this->telegramMediaMaxDownloadTimeout);
+                        $command->url(escapeshellarg($apiUrl));
+
+                        // 创建 curl 命令
+//                    $command = sprintf('curl -s -o %s --max-time %d %s', escapeshellarg($outputPath), $this->maxDownloadTimeout, escapeshellarg($apiUrl));
+
+//                    $maker_->getScanner()->logInfo('exec:' . $command);
+
+                        $launcher = new Launcher((string)$command);
+
+                        $logName = 'curl-launcher';
+                        $launcher->setStandardLogger($logName);
+                        if ($this->enableRedisLog)
+                        {
+                            $launcher->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                        }
+
+                        if ($this->enableEchoLog)
+                        {
+                            $launcher->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                        }
+
+                        $launcher->launch();
+                    }
+                };
+
                 $maker->addProcessor(new CallbackProcessor($processorCallback));
 
                 return $maker;
@@ -511,13 +550,24 @@
             return $this->container->get('downloadMediaMaker');
         }
 
-        public function initDownloadMediaScanner(): static
+        protected function initDownloadMediaScanner(): static
         {
             $this->container->set('downloadMediaScanner', function(Container $container) {
-                $scanner = new  LoopScanner();
+                $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setStandardLogger('te-page-media-download');
-                $scanner->setName(static::SCANNER_DOWNLOAD_MEDIA);
+                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
+
+                $logName = 'te-download-media-loopScanner';
+                $scanner->setStandardLogger($logName);
+                if ($this->enableRedisLog)
+                {
+                    $scanner->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                }
+
+                if ($this->enableEchoLog)
+                {
+                    $scanner->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                }
 
                 return $scanner;
             });
@@ -595,9 +645,11 @@
                         if (!$jsonInfo)
                         {
                             $this->getToFileMoveScanner()->logInfo('文件为空，删除：' . $fullSourcePath);
-                            $this->getToFileMoveScanner()->logInfo('暂停' . $this->downloadDelayInSecond . '秒');
+                            $this->getToFileMoveScanner()
+                                ->logInfo('暂停' . $this->telegramMediaDownloadDelayInSecond . '秒');
 
-                            $this->getRedisClient()->setex(static::DOWNLOAD_LOCK_KEY, $this->downloadDelayInSecond, 1);
+                            $this->getRedisClient()
+                                ->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
 
                             unlink($fullSourcePath);
 
@@ -633,7 +685,7 @@
                         $targetPath = static::makePath($jsonInfo['result']['file_id'], $fileType) . '.' . $updateInfo[$msgTable->getExtField()];
 
                         // /var/www/6025/new/coco-tgDownloader/examples/data/mediaStore/2024-10/photos/A/AQADdrcxGxbnIFR-.jpg
-                        $target = rtrim($this->mediaStorePath) . '/' . ltrim($targetPath);
+                        $target = rtrim($this->telegramMediaStorePath) . '/' . ltrim($targetPath);
 
                         is_dir(dirname($target)) or mkdir(dirname($target), 0777, true);
 
@@ -734,10 +786,21 @@
         {
             $this->container->set('toFileMove', function(Container $container) {
 
-                $scanner = new  LoopScanner();
+                $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setStandardLogger('te-page-fileMove');
-                $scanner->setName(static::SCANNER_FILE_MOVE);
+                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
+
+                $logName = 'te-to-file-move-loopScanner';
+                $scanner->setStandardLogger($logName);
+                if ($this->enableRedisLog)
+                {
+                    $scanner->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                }
+
+                if ($this->enableEchoLog)
+                {
+                    $scanner->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                }
 
                 return $scanner;
             });
@@ -831,6 +894,7 @@
                         {
                             $result[$group_id] = $item;
                         }
+                        $result[$group_id] = $item;
                     }
 
                     return $result;
@@ -903,7 +967,6 @@
 
                         $content = preg_replace('#[\r\n]+#iu', "\r\n", $content);
                         $maker_->getScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
-                        $maker_->getScanner()->logInfo(PHP_EOL);
 
                         if (count($files))
                         {
@@ -947,10 +1010,21 @@
         {
             $this->container->set('migration', function(Container $container) {
 
-                $scanner = new  LoopScanner();
+                $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setStandardLogger('te-page-migration');
-                $scanner->setName(static::SCANNER_MIGRATION);
+                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
+
+                $logName = 'te-migration-loopScanner';
+                $scanner->setStandardLogger($logName);
+                if ($this->enableRedisLog)
+                {
+                    $scanner->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                }
+
+                if ($this->enableEchoLog)
+                {
+                    $scanner->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                }
 
                 return $scanner;
             });
@@ -976,7 +1050,7 @@
         /*
          * ---------------------------------------------------------
          * */
-        public function initTelegramBotApi($apiId, $apiHash): static
+        protected function initTelegramBotApi(): static
         {
             is_dir($this->telegramBotApiPath) or mkdir($this->telegramBotApiPath, 0777, true);
             if (!is_dir($this->telegramBotApiPath))
@@ -984,14 +1058,13 @@
                 throw new \Exception('文件夹不存在：' . $this->telegramBotApiPath);
             }
 
-            $this->container->set('telegramBotApi', function(Container $container) use ($apiId, $apiHash) {
+            $this->container->set('telegramBotApi', function(Container $container) {
 
                 $binPath = dirname(__DIR__) . '/tg-bot-server/bin/telegram-bot-api';
 
                 $telegramApiCommand = TelegramBotAPI::getIns($binPath);
-
-                $telegramApiCommand->setApiId((string)$apiId);
-                $telegramApiCommand->setApiHash($apiHash);
+                $telegramApiCommand->setApiId((string)$this->apiId);
+                $telegramApiCommand->setApiHash($this->apiHash);
                 $telegramApiCommand->allowLocalRequests();
                 $telegramApiCommand->setHttpPort($this->localServerPort);
                 $telegramApiCommand->setHttpStatPort($this->statisticsPort);
@@ -1001,7 +1074,17 @@
                 $telegramApiCommand->setLogVerbosity(1);
 
                 $launcher = new DaemonLauncher((string)$telegramApiCommand);
-                $launcher->setStandardLogger('te-page-launcher');
+                $logName  = 'telegram-api-launcher';
+                $launcher->setStandardLogger($logName);
+                if ($this->enableRedisLog)
+                {
+                    $launcher->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                }
+
+                if ($this->enableEchoLog)
+                {
+                    $launcher->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                }
 
                 return $launcher;
             });
@@ -1084,7 +1167,6 @@
                     {
                         $botInfo[$t['key']] = $t['value'];
                     }
-
                 }
 
                 $result['bots'][$botInfo['id']] = $botInfo;
@@ -1097,12 +1179,24 @@
          * ---------------------------------------------------------
          * */
 
-        public function initMysql($db, $host = '127.0.0.1', $username = 'root', $password = 'root', $port = 3306): static
+        protected function initMysql(): static
         {
-            $this->container->set('mysqlClient', function(Container $container) use ($host, $port, $username, $password, $db) {
+            $this->container->set('mysqlClient', function(Container $container) {
 
-                $registry = TableRegistry::initMysqlClient($db, $host, $username, $password, $port);
-                $registry->setStandardLogger('te-page-mysql');
+                $registry = TableRegistry::initMysqlClient($this->mysqlDb, $this->mysqlHost, $this->mysqlUsername, $this->mysqlPassword, $this->mysqlPort,);
+
+                $logName = 'te-mysql';
+                $registry->setStandardLogger($logName);
+
+                if ($this->enableRedisLog)
+                {
+                    $registry->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+                }
+
+                if ($this->enableEchoLog)
+                {
+                    $registry->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+                }
 
                 return $registry;
             });
@@ -1119,20 +1213,20 @@
          * ---------------------------------------------------------
          * */
 
-        public function initRedis($host = '127.0.0.1', $password = '', $port = 6379, $db = 9): static
+        protected function initRedis(): static
         {
             $this->container->set('redisClient', function(Container $container) {
                 return (new \Redis());
             });
 
-            $this->missionManager->initRedisClient(function(MissionManager $missionManager) use ($host, $password, $port, $db) {
+            $this->telegraphQueueMissionManager->initRedisClient(function(MissionManager $missionManager) {
                 /**
                  * @var \Redis $redis
                  */
                 $redis = $missionManager->getContainer()->get('redisClient');
-                $redis->connect($host, $port);
-                $password && $redis->auth($password);
-                $redis->select($db);
+                $redis->connect($this->redisHost, $this->redisPort);
+                $this->redisPassword && $redis->auth($this->redisPassword);
+                $redis->select($this->redisDb);
 
                 return $redis;
             });
@@ -1158,7 +1252,7 @@
             return $this->container->get('telegramApiGuzzle');
         }
 
-        public function initTelegramApiGuzzle(): static
+        protected function initTelegramApiGuzzle(): static
         {
             $this->container->set('telegramApiGuzzle', function(Container $container) {
                 return new Client([
@@ -1284,19 +1378,13 @@
         {
             $this->container->set('cacheManager', function(Container $container) {
                 $marshaller   = new DeflateMarshaller(new DefaultMarshaller());
-                $cacheManager = new RedisAdapter($container->get('redisClient'), 'tg_download_', 0, $marshaller);
+                $cacheManager = new RedisAdapter($container->get('redisClient'), $this->redisNamespace . '_tg-cache_', 0, $marshaller);
 
                 return $cacheManager;
             });
 
             return $this;
         }
-
-        /*
-         *
-         * ---------------------------------------------------------
-         *
-         * */
 
         /*
          * ---------------------------------------------------------
@@ -1333,7 +1421,7 @@
             $guzzle = $this->getTelegramApiGuzzle();
 
             $apiUrl = $this->resolveEndponit('setWebhook', [
-                "url" => $this->webHookUrl,
+                "url" => $this->telegramWebHookUrl,
             ]);
 
             $config = [];
@@ -1350,16 +1438,12 @@
         public function deleteWebHook()
         {
             $guzzle = $this->getTelegramApiGuzzle();
-
             $apiUrl = $this->resolveEndponit('deleteWebHook');
 
-            $config = [];
-
+            $config   = [];
             $response = $guzzle->get($apiUrl, $config);
-
             $contents = $response->getBody()->getContents();
-
-            $json = json_decode($contents, true);
+            $json     = json_decode($contents, true);
 
             return $json;
         }
@@ -1466,7 +1550,7 @@
 
         protected function makeMediaGroupCountName($mediaGroupId): string
         {
-            return 'media_group_count:' . $mediaGroupId;
+            return $this->redisNamespace . ':media_group_count:' . $mediaGroupId;
         }
 
         protected function incMediaGroupCount($mediaGroupId): static
@@ -1508,7 +1592,7 @@
                     $mission->setProxy($this->telegraphProxy);
                 }
 
-                $mission->createAccount($this->shortName, $this->authorName, $this->authorUrl);
+                $mission->createAccount($this->telegraphPageShortName, $this->telegraphPageAuthorName, $this->telegraphPageAuthorUrl);
 
                 $this->createAccountQueue->addNewMission($mission);
             }
@@ -1519,9 +1603,9 @@
             $queue = $this->createAccountQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -1552,22 +1636,22 @@
 
                     if ($res)
                     {
-                        $this->missionManager->logInfo('创建成功: ' . $mission->index);
+                        $this->telegraphQueueMissionManager->logInfo('创建成功: ' . $mission->index);
                     }
                     else
                     {
-                        $this->missionManager->logError('写入错误: ' . $mission->index);
+                        $this->telegraphQueueMissionManager->logError('写入错误: ' . $mission->index);
                     }
 
                 }
                 else
                 {
-                    $this->missionManager->logError($mission->index . ' -- ' . $result['error']);
+                    $this->telegraphQueueMissionManager->logError($mission->index . ' -- ' . $result['error']);
                 }
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -1580,7 +1664,7 @@
         {
             if ($this->isIndexPageCreated())
             {
-                $this->missionManager->logInfo('index 页面已经创建，此任务被忽略');
+                $this->telegraphQueueMissionManager->logInfo('index 页面已经创建，此任务被忽略');
 
                 return;
             }
@@ -1595,9 +1679,9 @@
                 $mission->setProxy($this->telegraphProxy);
             }
 
-            $json = $this->style->placeHolder('index 建设中...');
+            $json = $this->telegraphPageStyle->placeHolder('index 建设中...');
             $mission->setAccessToken($token);
-            $mission->createPage($this->brandTitle, $json, true);
+            $mission->createPage($this->telegraphPageBrandTitle, $json, true);
 
             $this->createIndexPageQueue->addNewMission($mission);
         }
@@ -1607,9 +1691,9 @@
             $queue = $this->createIndexPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -1651,22 +1735,22 @@
 
                     if ($re)
                     {
-                        $this->missionManager->logInfo('index 创建 ok');
+                        $this->telegraphQueueMissionManager->logInfo('index 创建 ok');
                     }
                     else
                     {
-                        $this->missionManager->logError($json);
+                        $this->telegraphQueueMissionManager->logError($json);
                     }
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
 
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -1685,7 +1769,7 @@
             {
                 if ($this->isTypePageCreated($type[$typeTab->getPkField()], 1))
                 {
-                    $this->missionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
+                    $this->telegraphQueueMissionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
 
                     continue;
                 }
@@ -1704,11 +1788,11 @@
                 }
 
                 $title = $this->makePageName($typeName);
-                $json  = $this->style->placeHolder($title . ' 建设中...');
+                $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                 $mission->setAccessToken($token);
                 $mission->createPage($title, $json, true);
 
-                $this->missionManager->logInfo('createFirstTypePage: ' . $title);
+                $this->telegraphQueueMissionManager->logInfo('createFirstTypePage: ' . $title);
 
                 $this->createFirstTypePageQueue->addNewMission($mission);
             }
@@ -1719,9 +1803,9 @@
             $queue = $this->createFirstTypePageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -1766,23 +1850,23 @@
 
                     if ($re)
                     {
-                        $this->missionManager->logInfo('ok-' . $mission->typeInfo[$this->getTypeTable()
+                        $this->telegraphQueueMissionManager->logInfo('ok-' . $mission->typeInfo[$this->getTypeTable()
                                 ->getNameField()]);
                     }
                     else
                     {
-                        $this->missionManager->logError($json);
+                        $this->telegraphQueueMissionManager->logError($json);
                     }
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
 
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -1801,13 +1885,13 @@
                 {
                     if ($this->isDetailPageCreated($post[$postTab->getPkField()]))
                     {
-                        $this->missionManager->logInfo('id:' . $post[$postTab->getPkField()] . ' 详情页面已经创建，此任务被忽略');
+                        $this->telegraphQueueMissionManager->logInfo('id:' . $post[$postTab->getPkField()] . ' 详情页面已经创建，此任务被忽略');
 
                         continue;
                     }
 
                     $token = $this->getRandToken();
-                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 30);
+                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50);
 
                     if (!$title)
                     {
@@ -1825,11 +1909,11 @@
                     }
 
                     $title = "[" . date('Y-m-d') . "]" . $this->makePageName($title);
-                    $json  = $this->style->placeHolder($title . ' 建设中...');
+                    $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                     $mission->setAccessToken($token);
                     $mission->createPage($title, $json, true);
 
-                    $this->missionManager->logInfo('createDetailPage: ' . $post['id'] . ' - ' . $title);
+                    $this->telegraphQueueMissionManager->logInfo('createDetailPage: ' . $post['id'] . ' - ' . $title);
 
                     $this->createDetailPageQueue->addNewMission($mission);
                 }
@@ -1840,8 +1924,6 @@
                 'type.' . $typeTab->getNameField() . ' as type_name',
             ]))
                 ->join($typeTab->getName() . ' type', 'post.' . $postTab->getTypeIdField() . ' = type.' . $typeTab->getPkField(), 'left')
-//                ->fetchSql(true)
-//                ->select();
                 ->chunk(500, $func, 'post.' . $postTab->getPkField());
         }
 
@@ -1850,9 +1932,9 @@
             $queue = $this->createDetailPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -1901,29 +1983,29 @@
 
                     if ($re)
                     {
-                        $title = static::truncateUtf8String($mission->post[$postTab->getContentsField()], 30);
+                        $title = static::truncateUtf8String($mission->post[$postTab->getContentsField()], 50);
 
                         if (!$title)
                         {
                             $title = '无标题贴';
                         }
 
-                        $this->missionManager->logInfo('ok-' . $this->makePageName($title));
+                        $this->telegraphQueueMissionManager->logInfo('ok-' . $this->makePageName($title));
                     }
                     else
                     {
-                        $this->missionManager->logError($json);
+                        $this->telegraphQueueMissionManager->logError($json);
                     }
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
 
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -1973,7 +2055,7 @@
                     ->where([$pageTab->getPostTypeIdField() => $typeId])->count();
 
                 //折合总页数
-                $totalPages = (int)ceil($count / $this->pageRow);
+                $totalPages = (int)ceil($count / $this->telegraphPageRow);
 
                 //生成当前分类页数信息，为每页构造列表页面
                 for ($pageNow = 1; $pageNow <= $totalPages; $pageNow++)
@@ -1981,7 +2063,7 @@
                     $results = $pageTab->tableIns()->where($wherePageDetail)
                         ->where([$pageTab->getPostTypeIdField() => $typeId,])->order($pageTab->getPostIdField(), 'asc')
                         ->paginate([
-                            'list_rows' => $this->pageRow,
+                            'list_rows' => $this->telegraphPageRow,
                             'page'      => $pageNow,
                         ]);
 
@@ -2001,7 +2083,7 @@
                     {
                         if ($this->isTypePageCreated($type[$typeTab->getPkField()], $pageNow))
                         {
-                            $this->missionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
+                            $this->telegraphQueueMissionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
 
                             continue;
                         }
@@ -2021,11 +2103,11 @@
                         }
 
                         $title = $this->makePageName($typeName);
-                        $json  = $this->style->placeHolder($title . ' 建设中...');
+                        $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                         $mission->setAccessToken($token);
                         $mission->createPage($title, $json, true);
 
-                        $this->missionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ' - ' . $pageNow);
+                        $this->telegraphQueueMissionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ' - ' . $pageNow);
 
                         $this->createTypeAllPageQueue->addNewMission($mission);
                     }
@@ -2039,9 +2121,9 @@
             $queue = $this->createTypeAllPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -2089,22 +2171,22 @@
 
                     if ($re)
                     {
-                        $this->missionManager->logInfo('ok-' . $mission->typeInfo[$typeTab->getNameField()] . '--页码:' . $mission->pageNow);
+                        $this->telegraphQueueMissionManager->logInfo('ok-' . $mission->typeInfo[$typeTab->getNameField()] . '--页码:' . $mission->pageNow);
                     }
                     else
                     {
-                        $this->missionManager->logError($json);
+                        $this->telegraphQueueMissionManager->logError($json);
                     }
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
 
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -2186,7 +2268,7 @@
                     $pageTab->getUrlField(),
                     $pageTab->getTitleField(),
                 ]))->order($pageTab->getPostIdField(), 'desc')->paginate([
-                    'list_rows' => $this->pageRow,
+                    'list_rows' => $this->telegraphPageRow,
                     'page'      => $typePage[$pageTab->getPageNumField()],
                 ]);
 
@@ -2198,7 +2280,7 @@
                     ];
                 }
 
-                $this->style->updateTypePage($typeInfo, $pageButtons, $contentsList);
+                $this->telegraphPageStyle->updateTypePage($typeInfo, $pageButtons, $contentsList);
 
                 $token   = $typePage[$pageTab->getTokenField()];
                 $mission = new TelegraphMission();
@@ -2211,9 +2293,9 @@
                 }
 
                 $mission->setAccessToken($token);
-                $mission->editPage($typePage[$pageTab->getPathField()], $title, $this->style->toJson(), true);
+                $mission->editPage($typePage[$pageTab->getPathField()], $title, $this->telegraphPageStyle->toJson(), true);
 
-                $this->missionManager->logInfo(implode([
+                $this->telegraphQueueMissionManager->logInfo(implode([
                     'updateTypeAllPageToQueue，',
                     '分类:' . $typePage[$pageTab->getPostTypeIdField()] . '，',
                     '页码:' . $typePage[$pageTab->getPageNumField()] . '，',
@@ -2231,9 +2313,9 @@
             $queue = $this->updateTypeAllPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -2248,7 +2330,7 @@
 
                 if ($result['ok'])
                 {
-                    $this->missionManager->logInfo(implode([
+                    $this->telegraphQueueMissionManager->logInfo(implode([
                         '更新成功，',
                         '分类:' . $mission->typePage[$pageTab->getPostTypeIdField()] . '，',
                         '页码:' . $mission->typePage[$pageTab->getPageNumField()] . '，',
@@ -2257,12 +2339,12 @@
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -2299,7 +2381,7 @@
                         $token  = $params['token'];
                         $post   = $params['post'];
 
-                        $title = static::truncateUtf8String($post[$postTab->getContentsField()], 30) . '...';
+                        $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50) . '...';
 
                         if (!$title)
                         {
@@ -2367,7 +2449,7 @@
 
                         $prve_next = E::AListWithCaption1($prve_next_item, false);
 
-                        $this->style->updateDetailPage($post, $page, $prve_next, $files);
+                        $this->telegraphPageStyle->updateDetailPage($post, $page, $prve_next, $files);
 
                         $mission = new TelegraphMission();
                         $mission->setTimeout($this->telegraphTimeout);
@@ -2381,10 +2463,10 @@
                         }
 
                         $mission->setAccessToken($token);
-                        $mission->editPage($page['path'], $title, $this->style->toJson(), true);
+                        $mission->editPage($page['path'], $title, $this->telegraphPageStyle->toJson(), true);
 
-                        $this->missionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
-                        $this->missionManager->logInfo(implode([
+                        $this->telegraphQueueMissionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
+                        $this->telegraphQueueMissionManager->logInfo(implode([
                             'updateDetailPageToQueue，',
                             '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
                             '标题:' . $mission->title . '，',
@@ -2402,9 +2484,9 @@
             $queue = $this->updateDetailPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -2419,7 +2501,7 @@
 
                 if ($result['ok'])
                 {
-                    $this->missionManager->logInfo(implode([
+                    $this->telegraphQueueMissionManager->logInfo(implode([
                         '更新成功，',
                         '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
                         '标题:' . $mission->title . '，',
@@ -2428,12 +2510,12 @@
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -2452,7 +2534,7 @@
             $indexPageInfo = $this->getIndexPageInfo();
             $token         = $indexPageInfo[$pageTab->getTokenField()];
 
-            $this->style->updateIndexPage();
+            $this->telegraphPageStyle->updateIndexPage();
 
             $mission = new TelegraphMission();
             $mission->setTimeout($this->telegraphTimeout);
@@ -2465,9 +2547,9 @@
             }
 
             $mission->setAccessToken($token);
-            $mission->editPage($indexPageInfo['path'], $this->brandTitle, $this->style->toJson(), true);
+            $mission->editPage($indexPageInfo['path'], $this->telegraphPageBrandTitle, $this->telegraphPageStyle->toJson(), true);
 
-            $this->missionManager->logInfo(implode([
+            $this->telegraphQueueMissionManager->logInfo(implode([
                 'updateIndexPageToQueue，',
                 'url: ' . $indexPageInfo[$pageTab->getUrlField()],
             ]));
@@ -2479,9 +2561,9 @@
             $queue = $this->updateIndexPageQueue;
 
             $queue->setContinuousRetry(true);
-            $queue->setDelayMs($this->queueDelayMs);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->maxTimes);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -2496,19 +2578,19 @@
 
                 if ($result['ok'])
                 {
-                    $this->missionManager->logInfo(implode([
+                    $this->telegraphQueueMissionManager->logInfo(implode([
                         'updateIndexPageToQueue，',
                         'url: ' . $mission->indexPageInfo[$pageTab->getUrlField()],
                     ]));
                 }
                 else
                 {
-                    $this->missionManager->logError($result['error']);
+                    $this->telegraphQueueMissionManager->logError($result['error']);
                 }
             };
 
             $catch = function(TelegraphMission $mission, \Exception $exception) {
-                $this->missionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -2520,12 +2602,12 @@
 
         public function queueMonitor(): void
         {
-            $this->missionManager->getAllQueueInfoTable();
+            $this->telegraphQueueMissionManager->getAllQueueInfoTable();
         }
 
         public function getQueueStatus(): array
         {
-            return $this->missionManager->getAllQueueInfo();
+            return $this->telegraphQueueMissionManager->getAllQueueInfo();
         }
 
         public function restoreFailureMission(): void
@@ -2549,9 +2631,9 @@
             $this->updateIndexPageQueue->restoreTimesReachedMission();
         }
 
-        public function setQueueDelayMs(int $queueDelayMs): static
+        public function setTelegraphQueueDelayMs(int $telegraphQueueDelayMs): static
         {
-            $this->queueDelayMs = $queueDelayMs;
+            $this->telegraphQueueDelayMs = $telegraphQueueDelayMs;
 
             return $this;
         }
@@ -2563,23 +2645,23 @@
             return $this;
         }
 
-        public function setBrandTitle(?string $brandTitle): static
+        public function setTelegraphPageBrandTitle(?string $telegraphPageBrandTitle): static
         {
-            $this->brandTitle = $brandTitle;
+            $this->telegraphPageBrandTitle = $telegraphPageBrandTitle;
 
             return $this;
         }
 
-        public function setPageRow(int $pageRow): static
+        public function setTelegraphPageRow(int $telegraphPageRow): static
         {
-            $this->pageRow = $pageRow;
+            $this->telegraphPageRow = $telegraphPageRow;
 
             return $this;
         }
 
-        public function setMaxTimes(int $maxTimes): static
+        public function setTelegraphQueueMaxTimes(int $telegraphQueueMaxTimes): static
         {
-            $this->maxTimes = $maxTimes;
+            $this->telegraphQueueMaxTimes = $telegraphQueueMaxTimes;
 
             return $this;
         }
@@ -2591,11 +2673,11 @@
             return $this;
         }
 
-        public function setStyle(?StyleAbstract $style): static
+        public function setTelegraphPageStyle(?StyleAbstract $telegraphPageStyle): static
         {
-            $this->style = $style;
+            $this->telegraphPageStyle = $telegraphPageStyle;
 
-            $this->style->setManager($this);
+            $this->telegraphPageStyle->setManager($this);
 
             return $this;
         }
@@ -2714,7 +2796,6 @@
             return $randomItems;
         }
 
-
         public function getTypes()
         {
             $types = $this->getCacheManager()->get('telegraph:types', function($item) {
@@ -2731,6 +2812,7 @@
 
             return $types;
         }
+
 
         protected function makePageName(string $name): string
         {
@@ -2758,14 +2840,14 @@
 
         protected function initQueue(): static
         {
-            $this->createAccountQueue       = $this->missionManager->initQueue(static::CREATE_ACCOUNT_QUEUE);
-            $this->createIndexPageQueue     = $this->missionManager->initQueue(static::CREATE_INDEX_PAGE_QUEUE);
-            $this->createFirstTypePageQueue = $this->missionManager->initQueue(static::CREATE_FIRST_TYPE_PAGE_QUEUE);
-            $this->createDetailPageQueue    = $this->missionManager->initQueue(static::CREATE_DETAIL_PAGE_QUEUE);
-            $this->createTypeAllPageQueue   = $this->missionManager->initQueue(static::CREATE_TYPE_ALL_PAGE_QUEUE);
-            $this->updateTypeAllPageQueue   = $this->missionManager->initQueue(static::UPDATE_TYPE_ALL_PAGE_QUEUE);
-            $this->updateDetailPageQueue    = $this->missionManager->initQueue(static::UPDATE_DETAIL_PAGE_QUEUE);
-            $this->updateIndexPageQueue     = $this->missionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
+            $this->createAccountQueue       = $this->telegraphQueueMissionManager->initQueue(static::CREATE_ACCOUNT_QUEUE);
+            $this->createIndexPageQueue     = $this->telegraphQueueMissionManager->initQueue(static::CREATE_INDEX_PAGE_QUEUE);
+            $this->createFirstTypePageQueue = $this->telegraphQueueMissionManager->initQueue(static::CREATE_FIRST_TYPE_PAGE_QUEUE);
+            $this->createDetailPageQueue    = $this->telegraphQueueMissionManager->initQueue(static::CREATE_DETAIL_PAGE_QUEUE);
+            $this->createTypeAllPageQueue   = $this->telegraphQueueMissionManager->initQueue(static::CREATE_TYPE_ALL_PAGE_QUEUE);
+            $this->updateTypeAllPageQueue   = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_TYPE_ALL_PAGE_QUEUE);
+            $this->updateDetailPageQueue    = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_DETAIL_PAGE_QUEUE);
+            $this->updateIndexPageQueue     = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
 
             return $this;
         }
@@ -2811,6 +2893,7 @@
             return in_array($this->makeDetailPageId($postPkId), $detailIdentifications);
         }
 
+
         /*
         *
         * ------------------------------------------------------
@@ -2824,9 +2907,74 @@
             return $this->debug;
         }
 
-        public function setDebug(bool $debug): void
+        public function initServer(): static
         {
-            $this->debug = $debug;
+            $this->initMissionManager();
+            $this->initRedis();
+            $this->initMysql();
+            $this->initTheDownloadMediaScanner();
+            $this->initTheFileMoveScanner();
+            $this->initTheMigrationScanner();
+            $this->initTelegramBotApi();
+            $this->initTelegramApiGuzzle();
+
+            return $this;
+        }
+
+        protected function initMissionManager(): static
+        {
+            $this->telegraphQueueMissionManager = new MissionManager($this->container);
+            $this->telegraphQueueMissionManager->setPrefix($this->redisNamespace);
+
+            $logName = 'te-queue-manager';
+            $this->telegraphQueueMissionManager->setStandardLogger($logName);
+            if ($this->enableRedisLog)
+            {
+                $this->telegraphQueueMissionManager->addRedisHandler(redisHost: $this->redisHost, redisPort: $this->redisPort, password: $this->redisPassword, db: $this->redisDb, logName: $this->logNamespace . $logName, callback: $this->telegraphQueueMissionManager::getStandardFormatter());
+            }
+
+            if ($this->enableEchoLog)
+            {
+                $this->telegraphQueueMissionManager->addStdoutHandler($this->telegraphQueueMissionManager::getStandardFormatter());
+            }
+
+            return $this;
+        }
+
+        public function initCommonProperty(): static
+        {
+            $msgTable = $this->getMessageTable();
+
+            $this->whereFileStatus0WaitingDownload = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_0_WAITING_DOWNLOAD,
+                ],
+            ];
+            $this->whereFileStatus1Downloading     = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_1_DOWNLOADING,
+                ],
+            ];
+            $this->whereFileStatus2FileMoved       = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_2_MOVED,
+                ],
+            ];
+            $this->whereFileStatus3InPosted        = [
+                [
+                    $msgTable->getFileStatusField(),
+                    '=',
+                    static::FILE_STATUS_3_IN_POSTED,
+                ],
+            ];
+
+            return $this;
         }
 
         public function getContainer(): Container
@@ -2877,71 +3025,21 @@
             return $data;
         }
 
-        public function enableEchoHandler(): static
-        {
-            $this->missionManager->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            $this->getMysqlClient()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            $this->getDownloadMediaScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            $this->getToFileMoveScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            $this->getMigrationScanner()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            $this->getTelegramBotApi()->addStdoutHandler(callback: $this->missionManager::getStandardFormatter());
-
-            return $this;
-        }
-
-        public function enableRedisHandler(string $redisHost = '127.0.0.1', int $redisPort = 6379, string $password = '', int $db = 10): static
-        {
-            $this->missionManager->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MissionManager', callback: $this->missionManager::getStandardFormatter());
-
-            $this->getMysqlClient()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MysqlClient', callback: $this->missionManager::getStandardFormatter());
-
-            $this->getDownloadMediaScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':DownloadMediaScanner', callback: $this->missionManager::getStandardFormatter());
-
-            $this->getToFileMoveScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':ToFileMoveScanner', callback: $this->missionManager::getStandardFormatter());
-
-            $this->getMigrationScanner()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':MigrationScanner', callback: $this->missionManager::getStandardFormatter());
-
-            $this->getTelegramBotApi()
-                ->addRedisHandler(redisHost: $redisHost, redisPort: $redisPort, password: $password, db: $db, logName: $this->logName . ':TelegramBotApi', callback: $this->missionManager::getStandardFormatter());
-
-            return $this;
-        }
-
         public function deleteRedisLog(): void
         {
             $redis = $this->getRedisClient();
 
-            $pattern = $this->logName . ':*';
+            $pattern = $this->logNamespace . ':*';
 
-            // 扫描并删除符合条件的键
-            $cursor = 0;
-            do
+            $keysToDelete = $redis->keys($pattern);
+
+            foreach ($keysToDelete as $key)
             {
-                // 使用 SCAN 命令扫描键
-                $result = $redis->scan($cursor, $pattern);
-                $cursor = $result[0];     // 更新游标
-                $keys   = $result[1];     // 获取匹配的键
-
-                // 如果有匹配的键，则删除
-                if (!empty($keys))
-                {
-                    $redis->del($keys);  // 删除匹配的键
-                }
-
-                // 如果游标为 0，表示扫描结束
-            } while ($cursor != 0);
+                $redis->del($key);
+            }
         }
 
-        private function envCheck(): void
+        protected function envCheck(): void
         {
             // 检查 PHP 版本
             if (version_compare(PHP_VERSION, '8.1.0', '<'))
@@ -2974,11 +3072,9 @@
 
         }
 
-
         public static function truncateUtf8String($string, $length): string
         {
             // 使用 mb_substr 来截取字符串，确保是按字符而非字节截取
             return mb_substr($string, 0, $length, 'UTF-8');
         }
-
     }

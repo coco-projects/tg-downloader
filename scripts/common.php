@@ -16,46 +16,29 @@
 
     $bootToken = $config['botToken'];
 
-    $manager = new Manager(bootToken: $bootToken, basePath: __DIR__ . '/../data');
+    $manager = new Manager($bootToken, __DIR__ . '/../data', 'space1');
+
     $manager->setDebug(true);
-    $manager->setMaxDownloading(6);
-    $manager->setDownloadDelayInSecond(2);
-    $manager->setMaxDownloadTimeout(100);
+    $manager->setTelegramMediaMaxDownloading(6);
+    $manager->setTelegramMediaDownloadDelayInSecond(2);
+    $manager->setTelegramMediaMaxDownloadTimeout(100);
     $manager->setMediaOwner('www');
-    //$manager->setMediaStorePath(__DIR__ . '/medias');
+//    $manager->setTelegramMediaStorePath(__DIR__ . '/medias');
 
     $url = 'http://127.0.0.1:8101/tg/scripts/endpoint/type1.php';
-    $manager->setWebHookUrl($url);
+    $manager->setTelegramWebHookUrl($url);
+    $manager->setRedisConfig(db: 12);
 
-    /*
-     * 初始化扫描器
-     * -------------------------------------------------------------------------------
-     * */
+    $manager->setMysqlConfig(db: 'ithinkphp_telegraph_test01');
+//    $manager->setMysqlConfig('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
 
-    $manager->initTheDownloadMediaScanner();
-    $manager->initTheFileMoveScanner();
-    $manager->initTheMigrationScanner();
+    $manager->setTelegramConfig(apiId: $config['apiId'], apiHash: $config['apiHash']);
 
-    /*
-     * 初始化其他组件
-     * -------------------------------------------------------------------------------
-     * */
-    $manager->initRedis(db: 2);
+    $manager->setLocalServerPort(8081);
+    $manager->setStatisticsPort(8082);
 
-    $manager->initMysql(db: 'ithinkphp_telegraph_test01');
-//    $manager->initMysql('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
-
-    $manager->initTelegramBotApi(apiId: $config['apiId'], apiHash: $config['apiHash']);
-
-    $manager->initTelegramApiGuzzle();
-
-    $manager->enableRedisHandler(db: 2);
-    $manager->enableEchoHandler();
-
-    /*
-     * telegraph 相关配置
-     * -------------------------------------------------------------------------------
-     * */
+    $manager->setEnableRedisLog(true);
+    $manager->setEnableEchoLog(true);
 
     $style = new \Coco\tgDownloader\styles\Style1();
 
@@ -71,13 +54,15 @@
     $style->addNav('自定义链接-google', 'https://google.com');
     $style->setMediaUrl('https://ex.72da.com/medias/');
 
-    $manager->setStyle($style);
+    $manager->setTelegraphPageStyle($style);
     $manager->setTelegraphProxy('192.168.0.111:1080');
-    $manager->setBrandTitle('汪汪');
-    $manager->setPageRow(5);
-    $manager->setMaxTimes(50);
-    $manager->setQueueDelayMs(0);
+    $manager->setTelegraphPageBrandTitle('汪汪');
+    $manager->setTelegraphPageRow(5);
+    $manager->setTelegraphQueueMaxTimes(50);
+    $manager->setTelegraphQueueDelayMs(0);
     $manager->setTelegraphTimeout(50);
+
+    $manager->initServer();
 
     /*
      * 初始化公用表
