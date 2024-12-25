@@ -14,9 +14,13 @@
 
     $config = include __DIR__ . '/config.php';
 
-    $bootToken = $config['botToken'];
-
-    $manager = new Manager($bootToken, __DIR__ . '/../data', 'space1');
+    $manager = new Manager(
+        $config['botToken'],
+        $config['apiId'],
+        $config['apiHash'],
+        __DIR__ . '/../data',
+        'space1'
+    );
 
     $manager->setDebug(true);
     $manager->setTelegramMediaMaxDownloading(6);
@@ -32,8 +36,6 @@
 
     $manager->setMysqlConfig(db: 'ithinkphp_telegraph_test01');
 //    $manager->setMysqlConfig('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
-
-    $manager->setTelegramConfig(apiId: $config['apiId'], apiHash: $config['apiHash']);
 
     $manager->setLocalServerPort(8081);
     $manager->setStatisticsPort(8082);

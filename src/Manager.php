@@ -60,9 +60,6 @@
         protected int    $mysqlPort                = 3306;
         protected int    $telegramMediaMaxFileSize = 1024 * 1024 * 200;
 
-        protected ?string $apiHash;
-        protected ?string $apiId;
-
         protected ?string $mediaOwner = 'www';
         protected ?string $logNamespace;
 
@@ -130,7 +127,7 @@
 
         protected MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
-        protected int            $telegraphPageRow        = 10;
+        protected int            $telegraphPageRow        = 100;
         protected int            $telegraphTimeout        = 30;
         protected int            $telegraphQueueMaxTimes  = 10;
         protected ?string        $telegraphPageBrandTitle = 'telegraph-pages';
@@ -145,7 +142,7 @@
         protected array $whereFileStatus2FileMoved;
         protected array $whereFileStatus3InPosted;
 
-        public function __construct(protected string $bootToken, protected string $basePath, protected string $redisNamespace, ?Container $container = null)
+        public function __construct(protected string $bootToken, protected string $apiId, protected string $apiHash, protected string $basePath, protected string $redisNamespace, ?Container $container = null)
         {
             $this->envCheck();
 
@@ -211,14 +208,6 @@
             $this->mysqlUsername = $username;
             $this->mysqlPort     = $port;
             $this->mysqlDb       = $db;
-
-            return $this;
-        }
-
-        public function setTelegramConfig(string $apiId, string $apiHash): static
-        {
-            $this->apiId   = $apiId;
-            $this->apiHash = $apiHash;
 
             return $this;
         }
@@ -468,11 +457,9 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))
-                        ->where($this->whereFileStatus0WaitingDownload)
-                        ->where($msgTable->getFileSizeField() ,'<',$this->telegramMediaMaxFileSize)
-                        ->limit(0, $this->telegramMediaMaxDownloading - $downloading)
-                        ->order($msgTable->getPkField())
+                    ]))->where($this->whereFileStatus0WaitingDownload)
+                        ->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
+                        ->limit(0, $this->telegramMediaMaxDownloading - $downloading)->order($msgTable->getPkField())
                         ->select();
 
                     $data = $data->toArray();
@@ -869,8 +856,7 @@
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)
-                        ->limit(0, 500)
+                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 500)
                         ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
@@ -1390,7 +1376,7 @@
         {
             $this->container->set('cacheManager', function(Container $container) {
                 $marshaller   = new DeflateMarshaller(new DefaultMarshaller());
-                $cacheManager = new RedisAdapter($container->get('redisClient'), $this->redisNamespace . '_tg-cache_', 0, $marshaller);
+                $cacheManager = new RedisAdapter($container->get('redisClient'), $this->redisNamespace . '-tg-cache', 0, $marshaller);
 
                 return $cacheManager;
             });
@@ -1498,10 +1484,8 @@
                 $msgTable->tableIns()->insert($data);
 
                 //更新每个信息有几个media图文
-                if (
-                    //如果有文件要下载
-                    $data[$msgTable->getFileUniqueIdField()] &&
-                    //并且文件小于200M
+                if (//如果有文件要下载
+                    $data[$msgTable->getFileUniqueIdField()] && //并且文件小于200M
                     ($msg->fileSize < $this->telegramMediaMaxFileSize))
                 {
                     $this->incMediaGroupCount($msg->mediaGroupId);
@@ -2713,7 +2697,7 @@
 
         public function getIndexPageInfo(): array
         {
-            return $this->getCacheManager()->get('$indexPage', function($item) {
+            return $this->getCacheManager()->get('telegraph:index_page', function($item) {
                 $item->expiresAfter(60);
 
                 $webPageTab = $this->getPagesTable();
