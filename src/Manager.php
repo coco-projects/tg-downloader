@@ -54,10 +54,11 @@
         protected int    $redisDb       = 9;
 
         protected string $mysqlDb;
-        protected string $mysqlHost     = '127.0.0.1';
-        protected string $mysqlUsername = 'root';
-        protected string $mysqlPassword = 'root';
-        protected int    $mysqlPort     = 3306;
+        protected string $mysqlHost                = '127.0.0.1';
+        protected string $mysqlUsername            = 'root';
+        protected string $mysqlPassword            = 'root';
+        protected int    $mysqlPort                = 3306;
+        protected int    $telegramMediaMaxFileSize = 1024 * 1024 * 200;
 
         protected ?string $apiHash;
         protected ?string $apiId;
@@ -321,6 +322,13 @@
             return $this;
         }
 
+        public function setTelegramMediaMaxFileSize(int $telegramMediaMaxFileSize): static
+        {
+            $this->telegramMediaMaxFileSize = $telegramMediaMaxFileSize;
+
+            return $this;
+        }
+
         /*
          * ---------------------------------------------------------
          * */
@@ -452,6 +460,7 @@
 
                     /*
                      * getFileStatusField 为 0,并且 path 为空，每次获取 maxDownloading 个
+                     * 文件超过 telegramMediaMaxFileSize 的不下载
                      *
                      * --------------*/
                     $data = $msgTable->tableIns()->field(implode(',', [
@@ -459,8 +468,11 @@
                         $msgTable->getFileIdField(),
                         $msgTable->getDownloadTimeField(),
                         $msgTable->getFileSizeField(),
-                    ]))->where($this->whereFileStatus0WaitingDownload)
-                        ->limit(0, $this->telegramMediaMaxDownloading - $downloading)->order($msgTable->getPkField())
+                    ]))
+                        ->where($this->whereFileStatus0WaitingDownload)
+                        ->where($msgTable->getFileSizeField() ,'<',$this->telegramMediaMaxFileSize)
+                        ->limit(0, $this->telegramMediaMaxDownloading - $downloading)
+                        ->order($msgTable->getPkField())
                         ->select();
 
                     $data = $data->toArray();
@@ -857,7 +869,8 @@
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 500)
+                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)
+                        ->limit(0, 500)
                         ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
@@ -894,7 +907,6 @@
                         {
                             $result[$group_id] = $item;
                         }
-                        $result[$group_id] = $item;
                     }
 
                     return $result;
@@ -1486,7 +1498,11 @@
                 $msgTable->tableIns()->insert($data);
 
                 //更新每个信息有几个media图文
-                if ($data[$msgTable->getFileUniqueIdField()])
+                if (
+                    //如果有文件要下载
+                    $data[$msgTable->getFileUniqueIdField()] &&
+                    //并且文件小于200M
+                    ($msg->fileSize < $this->telegramMediaMaxFileSize))
                 {
                     $this->incMediaGroupCount($msg->mediaGroupId);
                 }
@@ -1540,7 +1556,6 @@
         {
             return preg_split('#[\r\n]+#', $data, -1, PREG_SPLIT_NO_EMPTY);
         }
-
 
         /*
          *

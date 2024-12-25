@@ -24,6 +24,7 @@
     $manager->setTelegramMediaMaxDownloadTimeout(100);
     $manager->setMediaOwner('www');
 //    $manager->setTelegramMediaStorePath(__DIR__ . '/medias');
+    $manager->setTelegramMediaMaxFileSize(3 * 1024 * 1024);
 
     $url = 'http://127.0.0.1:8101/tg/scripts/endpoint/type1.php';
     $manager->setTelegramWebHookUrl($url);
