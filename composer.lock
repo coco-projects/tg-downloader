@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5ff117b81bd06df7df310f3a40a1641c",
+    "content-hash": "d75a300807ef1e1d44eb95ea72103749",
     "packages": [
         {
             "name": "coco-project/closure",

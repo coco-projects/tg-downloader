@@ -9,7 +9,6 @@
 		"coco-project/scanner"       : "^1.0",
 		"coco-project/table-manager" : "^1.0",
 		"coco-project/telegraph"     : "^1.0",
-		"guzzlehttp/guzzle"          : "^7.9",
 		"spatie/url"                 : "^2.4",
 		"symfony/cache"              : "^6.4"
 	},
