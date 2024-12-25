@@ -556,7 +556,7 @@
                 $scanner->setDelayMs(3000);
                 $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
 
-                $logName = 'te-download-media-loopScanner';
+                $logName = 'te-loopScanner-download-media';
                 $scanner->setStandardLogger($logName);
                 if ($this->enableRedisLog)
                 {
@@ -600,7 +600,7 @@
 
         public function stopDownloadMedia(): void
         {
-            LoopTool::getIns()->stop(static::SCANNER_DOWNLOAD_MEDIA);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
         }
 
         /*
@@ -789,7 +789,7 @@
                 $scanner->setDelayMs(3000);
                 $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
 
-                $logName = 'te-to-file-move-loopScanner';
+                $logName = 'te-loopScanner-to-file-move';
                 $scanner->setStandardLogger($logName);
                 if ($this->enableRedisLog)
                 {
@@ -819,7 +819,7 @@
 
         public function stopFileMove(): void
         {
-            LoopTool::getIns()->stop(static::SCANNER_FILE_MOVE);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
         }
         /*
          * ---------------------------------------------------------
@@ -1012,7 +1012,7 @@
                 $scanner->setDelayMs(3000);
                 $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
 
-                $logName = 'te-migration-loopScanner';
+                $logName = 'te-loopScanner-migration';
                 $scanner->setStandardLogger($logName);
                 if ($this->enableRedisLog)
                 {
@@ -1042,7 +1042,7 @@
 
         public function stopMigration(): void
         {
-            LoopTool::getIns()->stop(static::SCANNER_MIGRATION);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
         }
 
         /*
