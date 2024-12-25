@@ -588,14 +588,17 @@
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
+            return $msgTable->tableIns()
+                ->where($this->whereFileStatus1Downloading)->count();
         }
 
         public function getDownloadingRemainCount(): int
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()->where($this->whereFileStatus0WaitingDownload)->count();
+            return $msgTable->tableIns()
+                ->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
+                ->where($this->whereFileStatus0WaitingDownload)->count();
         }
 
         public function stopDownloadMedia(): void
