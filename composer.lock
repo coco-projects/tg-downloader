@@ -383,16 +383,16 @@
         },
         {
             "name": "coco-project/telegraph",
-            "version": "v1.0.2",
+            "version": "v1.0.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/telegraph.git",
-                "reference": "06aa3e52a1d1967bffb6c4e70f3cd30409062439"
+                "reference": "fd77de76cdad8a87165003909e579c1f6a01603c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/telegraph/zipball/06aa3e52a1d1967bffb6c4e70f3cd30409062439",
-                "reference": "06aa3e52a1d1967bffb6c4e70f3cd30409062439",
+                "url": "https://api.github.com/repos/coco-projects/telegraph/zipball/fd77de76cdad8a87165003909e579c1f6a01603c",
+                "reference": "fd77de76cdad8a87165003909e579c1f6a01603c",
                 "shasum": ""
             },
             "require": {
@@ -417,9 +417,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/telegraph/issues",
-                "source": "https://github.com/coco-projects/telegraph/tree/v1.0.2"
+                "source": "https://github.com/coco-projects/telegraph/tree/v1.0.3"
             },
-            "time": "2024-09-19T09:40:08+00:00"
+            "time": "2024-12-27T15:49:24+00:00"
         },
         {
             "name": "coco-project/timer",
@@ -1711,12 +1711,12 @@
             },
             "type": "library",
             "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
                 "branch-alias": {
                     "dev-main": "3.5-dev"
-                },
-                "thanks": {
-                    "name": "symfony/contracts",
-                    "url": "https://github.com/symfony/contracts"
                 }
             },
             "autoload": {
@@ -1880,12 +1880,12 @@
             },
             "type": "library",
             "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
                 "branch-alias": {
                     "dev-main": "3.5-dev"
-                },
-                "thanks": {
-                    "name": "symfony/contracts",
-                    "url": "https://github.com/symfony/contracts"
                 }
             },
             "autoload": {
@@ -2413,12 +2413,12 @@
             },
             "type": "library",
             "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
                 "branch-alias": {
                     "dev-main": "3.5-dev"
-                },
-                "thanks": {
-                    "name": "symfony/contracts",
-                    "url": "https://github.com/symfony/contracts"
                 }
             },
             "autoload": {
