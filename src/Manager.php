@@ -155,8 +155,9 @@
                 $this->container = new Container();
             }
 
-            $this->logNamespace = $this->redisNamespace . ':tg-log:';
-            $this->basePath     = rtrim($this->basePath, '/');
+            $this->redisNamespace .= '-tg-page-downloader';
+            $this->logNamespace   = $this->redisNamespace . ':tg-log:';
+            $this->basePath       = rtrim($this->basePath, '/');
             is_dir($this->basePath) or mkdir($this->basePath, 0777, true);
             $this->basePath = realpath($this->basePath) . '/';
 
@@ -588,22 +589,21 @@
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()
-                ->where($this->whereFileStatus1Downloading)->count();
+            return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
         }
 
         public function getDownloadingRemainCount(): int
         {
             $msgTable = $this->getMessageTable();
 
-            return $msgTable->tableIns()
-                ->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
+            return $msgTable->tableIns()->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
                 ->where($this->whereFileStatus0WaitingDownload)->count();
         }
 
         public function stopDownloadMedia(): void
         {
-            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
+                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
         }
 
         /*
@@ -822,7 +822,8 @@
 
         public function stopFileMove(): void
         {
-            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
+                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
         }
         /*
          * ---------------------------------------------------------
@@ -1045,7 +1046,8 @@
 
         public function stopMigration(): void
         {
-            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)->stop($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
+            LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
+                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
         }
 
         /*
