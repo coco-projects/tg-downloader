@@ -1912,7 +1912,8 @@
                         $mission->setProxy($this->telegraphProxy);
                     }
 
-                    $title = "[" . date('Y-m-d') . "]" . $this->makePageName($title);
+//                    $title = "[" . date('Y-m-d') . "]" . $this->makePageName($title);
+                    $title = $this->makePageName($title);
                     $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                     $mission->setAccessToken($token);
                     $mission->createPage($title, $json, true);
