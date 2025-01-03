@@ -1186,7 +1186,7 @@
         {
             $this->container->set('mysqlClient', function(Container $container) {
 
-                $registry = TableRegistry::initMysqlClient($this->mysqlDb, $this->mysqlHost, $this->mysqlUsername, $this->mysqlPassword, $this->mysqlPort,);
+                $registry = new TableRegistry($this->mysqlDb, $this->mysqlHost, $this->mysqlUsername, $this->mysqlPassword, $this->mysqlPort,);
 
                 $logName = 'te-mysql';
                 $registry->setStandardLogger($logName);
