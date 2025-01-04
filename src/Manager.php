@@ -2690,7 +2690,7 @@
         public function getRandToken(): string
         {
             $tokens = $this->getCacheManager()->get('telegraph:account_tokens', function($item) {
-                $item->expiresAfter(60);
+                $item->expiresAfter(30);
                 $tab = $this->getAccountTable();
 
                 $tokens = $tab->tableIns()->column($tab->getAccessTokenField());
@@ -2704,7 +2704,7 @@
         public function getIndexPageInfo(): array
         {
             return $this->getCacheManager()->get('telegraph:index_page', function($item) {
-                $item->expiresAfter(60);
+                $item->expiresAfter(30);
 
                 $webPageTab = $this->getPagesTable();
 
@@ -2722,7 +2722,7 @@
         public function getTypeFirstPage(): array
         {
             return $this->getCacheManager()->get('telegraph:first_type_page', function($item) {
-                $item->expiresAfter(60);
+                $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
                 $typeTab = $this->getTypeTable();
@@ -2759,7 +2759,7 @@
         public function getRandDetailPages($count = 10): array
         {
             $detailPages = $this->getCacheManager()->get('telegraph:rand_detail_page', function($item) {
-                $item->expiresAfter(600);
+                $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
 
@@ -2808,7 +2808,7 @@
         public function getTypes()
         {
             $types = $this->getCacheManager()->get('telegraph:types', function($item) {
-                $item->expiresAfter(600);
+                $item->expiresAfter(30);
 
                 $typeTab = $this->getTypeTable();
 
