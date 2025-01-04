@@ -2788,14 +2788,18 @@
 
             $count = min($count, count($detailPages));
 
-            // 获取随机键
-            $randomKeys = array_rand($detailPages, $count);
-
             // 根据随机键提取元素
             $randomItems = [];
-            foreach ($randomKeys as $key)
+
+            if (count($detailPages))
             {
-                $randomItems[] = $detailPages[$key];
+                // 获取随机键
+                $randomKeys = array_rand($detailPages, $count);
+
+                foreach ($randomKeys as $key)
+                {
+                    $randomItems[] = $detailPages[$key];
+                }
             }
 
             return $randomItems;
