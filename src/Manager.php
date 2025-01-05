@@ -2756,6 +2756,34 @@
             });
         }
 
+        public function getLatestDetailPages($count = 10): array
+        {
+            $pageTab = $this->getPagesTable();
+
+            $items = $pageTab->tableIns()->where([
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_DETAIL,
+                ],
+            ])->field(implode(',', [
+                $pageTab->getUrlField(),
+                $pageTab->getTitleField(),
+            ]))->order($pageTab->getPkField(), 'desc')->limit(0, $count)->select();
+
+            $pagesList = [];
+            foreach ($items as $item)
+            {
+                $pagesList[] = [
+                    "href"    => $item[$pageTab->getUrlField()],
+                    "caption" => $item[$pageTab->getTitleField()],
+                ];
+            }
+
+            return $pagesList;
+        }
+
+
         public function getRandDetailPages($count = 10): array
         {
             $detailPages = $this->getCacheManager()->get('telegraph:rand_detail_page', function($item) {

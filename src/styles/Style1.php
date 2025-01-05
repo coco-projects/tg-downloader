@@ -39,7 +39,7 @@
             $this->addPageElements(E::br());
 //            $this->addPageElements(E::splitLine());
             $this->addPageElements(E::h4('随机看'));
-            $this->addPageElements(E::AListWithCaption1($this->manager->getRandDetailPages(20), true));
+            $this->addPageElements(E::AListWithCaption1($this->manager->getRandDetailPages(50), true));
         }
 
         /*
@@ -55,7 +55,8 @@
             $this->addAdv();
 
             $eles = [
-                //                E::splitLine('-'),
+                E::h4('最近更新'),
+                E::AListWithCaption1($this->manager->getLatestDetailPages(50), true),
             ];
 
             $this->importPageElements($eles);
