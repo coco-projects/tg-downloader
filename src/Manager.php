@@ -2783,7 +2783,6 @@
             return $pagesList;
         }
 
-
         public function getRandDetailPages($count = 10): array
         {
             $detailPages = $this->getCacheManager()->get('telegraph:rand_detail_page', function($item) {
@@ -3060,6 +3059,23 @@
             ];
 
             return $data;
+        }
+
+        public function needCreateDetailPageCount(): int
+        {
+            $a         = $this->getPostTable()->isTableCerated();
+            $postCount = $a ? (int)$this->getPostTable()->getCount() : 0;
+
+            $f               = $this->getPagesTable()->isTableCerated();
+            $detailPageCount = $f ? (int)$this->getPagesTable()->tableIns()->where([
+                [
+                    $this->getPagesTable()->getPageTypeField(),
+                    '=',
+                    static::PAGE_DETAIL,
+                ],
+            ])->count() : 0;
+
+            return $postCount - $detailPageCount;
         }
 
         public function deleteRedisLog(): void
