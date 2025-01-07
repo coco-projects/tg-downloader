@@ -2615,9 +2615,9 @@
             $url = call_user_func_array($callback, [$path]);
             $mission->setTimeout(30000);
             $mission->setUrl($url);
-            $mission->addClientOptions(
-                'verify' , false
-            );
+            $mission->setMethod('head');
+            $mission->addClientOptions('verify' , false);
+            $mission->addClientOptions('debug' , $this->debug);
             $mission->url = $url;
 
             $this->telegraphQueueMissionManager->logInfo(implode([
