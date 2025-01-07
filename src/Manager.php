@@ -5,6 +5,7 @@
     namespace Coco\tgDownloader;
 
     use Coco\queue\missionProcessors\GuzzleMissionProcessor;
+    use Coco\queue\missions\HttpMission;
     use Coco\queue\resultProcessor\CustomResultProcessor;
     use Coco\tgDownloader\styles\StyleAbstract;
     use DI\Container;
@@ -115,6 +116,7 @@
         const UPDATE_TYPE_ALL_PAGE_QUEUE   = 'UPDATE_TYPE_ALL_PAGE';
         const UPDATE_DETAIL_PAGE_QUEUE     = 'UPDATE_DETAIL_PAGE';
         const UPDATE_INDEX_PAGE_QUEUE      = 'UPDATE_INDEX_PAGE';
+        const CDN_PREFETCH_QUEUE           = 'CDN_PREFETCH';
 
         public Queue $createAccountQueue;
         public Queue $createIndexPageQueue;
@@ -124,6 +126,7 @@
         public Queue $updateTypeAllPageQueue;
         public Queue $updateDetailPageQueue;
         public Queue $updateIndexPageQueue;
+        public Queue $cdnPrefetchQueue;
 
         protected MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
@@ -513,11 +516,6 @@
                         $command->outputToFile(escapeshellarg($outputPath));
                         $command->setMaxTime($this->telegramMediaMaxDownloadTimeout);
                         $command->url(escapeshellarg($apiUrl));
-
-                        // 创建 curl 命令
-//                    $command = sprintf('curl -s -o %s --max-time %d %s', escapeshellarg($outputPath), $this->maxDownloadTimeout, escapeshellarg($apiUrl));
-
-//                    $maker_->getScanner()->logInfo('exec:' . $command);
 
                         $launcher = new Launcher((string)$command);
 
@@ -2603,6 +2601,61 @@
             $queue->listen();
         }
 
+
+        /*-------------------------------------------------------------------*/
+        public function cdnPrefetchToQueue(string $path, callable $callback): void
+        {
+            $mission = new HttpMission();
+
+            if (!is_null($this->telegraphProxy))
+            {
+                $mission->setProxy($this->telegraphProxy);
+            }
+
+            $url = call_user_func_array($callback, [$path]);
+            $mission->setTimeout(30000);
+            $mission->setUrl($url);
+            $mission->addClientOptions(
+                'verify' , false
+            );
+            $mission->url = $url;
+
+            $this->telegraphQueueMissionManager->logInfo(implode([
+                'cdnPrefetchQueue，',
+                'url: ' .$url,
+            ]));
+
+            $this->cdnPrefetchQueue->addNewMission($mission);
+        }
+
+        public function listenCdnPrefetch(): void
+        {
+            $queue = $this->cdnPrefetchQueue;
+
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new GuzzleMissionProcessor());
+
+            $success = function(HttpMission $mission) {
+//                只需要请求一次，不需要保持结果
+//                $response = $mission->getResult();
+//                $contents = $response->getBody()->getContents();
+
+                $this->telegraphQueueMissionManager->logInfo('cdnPrefetch success：'.$mission->url);
+            };
+
+            $catch = function(HttpMission $mission, \Exception $exception) {
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->listen();
+        }
+
         /*-------------------------------------------------------------------*/
 
         public function queueMonitor(): void
@@ -2884,6 +2937,7 @@
             $this->updateTypeAllPageQueue   = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_TYPE_ALL_PAGE_QUEUE);
             $this->updateDetailPageQueue    = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_DETAIL_PAGE_QUEUE);
             $this->updateIndexPageQueue     = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
+            $this->cdnPrefetchQueue         = $this->telegraphQueueMissionManager->initQueue(static::CDN_PREFETCH_QUEUE);
 
             return $this;
         }
