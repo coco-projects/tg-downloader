@@ -61,8 +61,9 @@
         protected int    $mysqlPort                = 3306;
         protected int    $telegramMediaMaxFileSize = 1024 * 1024 * 200;
 
-        protected ?string $mediaOwner = 'www';
+        protected ?string $mediaOwner          = 'www';
         protected ?string $logNamespace;
+        protected         $prefetchCndCallback = null;
 
         protected ?string $messageTableName = null;
         protected ?string $postTableName    = null;
@@ -318,6 +319,13 @@
         public function setTelegramMediaMaxFileSize(int $telegramMediaMaxFileSize): static
         {
             $this->telegramMediaMaxFileSize = $telegramMediaMaxFileSize;
+
+            return $this;
+        }
+
+        public function setPrefetchCndCallback(callable $prefetchCndCallback): static
+        {
+            $this->prefetchCndCallback = $prefetchCndCallback;
 
             return $this;
         }
@@ -970,6 +978,13 @@
 
                         if (count($files))
                         {
+                            if (is_callable($this->prefetchCndCallback))
+                            {
+                                call_user_func_array($this->prefetchCndCallback, [
+                                    $files,
+                                ]);
+                            }
+                            
                             $fileTable->tableIns()->insertAll($files);
                             $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
                         }
@@ -2616,13 +2631,13 @@
             $mission->setTimeout(30000);
             $mission->setUrl($url);
             $mission->setMethod('head');
-            $mission->addClientOptions('verify' , false);
-            $mission->addClientOptions('debug' , $this->debug);
+            $mission->addClientOptions('verify', false);
+            $mission->addClientOptions('debug', $this->debug);
             $mission->url = $url;
 
             $this->telegraphQueueMissionManager->logInfo(implode([
                 'cdnPrefetchQueue，',
-                'url: ' .$url,
+                'url: ' . $url,
             ]));
 
             $this->cdnPrefetchQueue->addNewMission($mission);
@@ -2644,7 +2659,7 @@
 //                $response = $mission->getResult();
 //                $contents = $response->getBody()->getContents();
 
-                $this->telegraphQueueMissionManager->logInfo('cdnPrefetch success：'.$mission->url);
+                $this->telegraphQueueMissionManager->logInfo('cdnPrefetch success：' . $mission->url);
             };
 
             $catch = function(HttpMission $mission, \Exception $exception) {
