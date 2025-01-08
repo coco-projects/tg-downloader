@@ -595,12 +595,22 @@
         {
             $msgTable = $this->getMessageTable();
 
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
+
             return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
         }
 
         public function getDownloadingRemainCount(): int
         {
             $msgTable = $this->getMessageTable();
+
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
 
             return $msgTable->tableIns()->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
                 ->where($this->whereFileStatus0WaitingDownload)->count();
@@ -984,7 +994,7 @@
                                     $files,
                                 ]);
                             }
-                            
+
                             $fileTable->tableIns()->insertAll($files);
                             $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
                         }
