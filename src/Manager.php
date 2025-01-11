@@ -83,6 +83,13 @@
         const SCANNER_FILE_MOVE      = 'file_move';
         const SCANNER_MIGRATION      = 'migration';
 
+        const CACHE_TYPE_PAGE_IDENTIFICATIONS = 'telegraph_type_page_identifications';
+        const CACHE_ACCOUNT_TOKENS            = 'telegraph_account_tokens';
+        const CACHE_INDEX_PAGE                = 'telegraph_index_page';
+        const CACHE_FIRST_TYPE_PAGE           = 'telegraph_first_type_page';
+        const CACHE_RAND_DETAIL_PAGE          = 'telegraph_rand_detail_page';
+        const CACHE_TYPES                     = 'telegraph_types';
+
         protected ?string $telegramTempJsonPath               = null;
         protected ?string $telegramMediaStorePath             = null;
         protected ?string $telegramBotApiPath                 = null;
@@ -666,8 +673,7 @@
                             $this->getToFileMoveScanner()
                                 ->logInfo('暂停' . $this->telegramMediaDownloadDelayInSecond . '秒');
 
-                            $this->getRedisClient()
-                                ->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
+                            $this->getRedisClient()->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
 
                             unlink($fullSourcePath);
 
@@ -1264,7 +1270,7 @@
             return $this;
         }
 
-        protected function getRedisClient(): \Redis
+        public function getRedisClient(): \Redis
         {
             return $this->container->get('redisClient');
         }
@@ -2767,7 +2773,7 @@
 
         public function getRandToken(): string
         {
-            $tokens = $this->getCacheManager()->get('telegraph:account_tokens', function($item) {
+            $tokens = $this->getCacheManager()->get(static::CACHE_ACCOUNT_TOKENS, function($item) {
                 $item->expiresAfter(30);
                 $tab = $this->getAccountTable();
 
@@ -2781,7 +2787,7 @@
 
         public function getIndexPageInfo(): array
         {
-            return $this->getCacheManager()->get('telegraph:index_page', function($item) {
+            return $this->getCacheManager()->get(static::CACHE_INDEX_PAGE, function($item) {
                 $item->expiresAfter(30);
 
                 $webPageTab = $this->getPagesTable();
@@ -2799,7 +2805,7 @@
 
         public function getTypeFirstPage(): array
         {
-            return $this->getCacheManager()->get('telegraph:first_type_page', function($item) {
+            return $this->getCacheManager()->get(static::CACHE_FIRST_TYPE_PAGE, function($item) {
                 $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
@@ -2863,7 +2869,7 @@
 
         public function getRandDetailPages($count = 10): array
         {
-            $detailPages = $this->getCacheManager()->get('telegraph:rand_detail_page', function($item) {
+            $detailPages = $this->getCacheManager()->get(static::CACHE_RAND_DETAIL_PAGE, function($item) {
                 $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
@@ -2910,9 +2916,81 @@
             return $randomItems;
         }
 
+        /**
+         * -2 表都没创建
+         * -1 已经存在
+         * 0 写入失败
+         * 1 写入成功
+         *
+         * @param string $name
+         * @param int    $groupId
+         *
+         * @return int
+         */
+        public function addType(string $name, int $groupId): int
+        {
+            $typeTab = $this->getTypeTable();
+
+            if (!$typeTab->isTableCerated())
+            {
+                return -2;
+            }
+
+            if ($this->isTypeGroupIdExists($groupId))
+            {
+                return -1;
+            }
+
+            return (int)!!$typeTab->tableIns()->insert([
+                $typeTab->getGroupIdField() => $groupId,
+                $typeTab->getNameField()    => $name,
+            ]);
+        }
+
+        public function delType(int $groupId): bool
+        {
+            $typeTab = $this->getTypeTable();
+
+            if (!$typeTab->isTableCerated())
+            {
+                return false;
+            }
+            $typeTab->tableIns()->where($typeTab->getGroupIdField(), '=', $groupId)->delete();
+
+            return true;
+        }
+
+        public function isTypeGroupIdExists(int $groupId): bool
+        {
+            $typeTab = $this->getTypeTable();
+
+            if (!$typeTab->isTableCerated())
+            {
+                return false;
+            }
+
+            return !!$typeTab->tableIns()->where($typeTab->getGroupIdField(), '=', $groupId)->findOrEmpty();
+        }
+
+        public function getTypeList()
+        {
+            $typeTab = $this->getTypeTable();
+
+            if (!$typeTab->isTableCerated())
+            {
+                return [];
+            }
+
+            return $typeTab->tableIns()->field(implode(',', [
+                $typeTab->getPkField(),
+                $typeTab->getNameField(),
+                $typeTab->getGroupIdField(),
+            ]))->select();
+        }
+
         public function getTypes()
         {
-            $types = $this->getCacheManager()->get('telegraph:types', function($item) {
+            $types = $this->getCacheManager()->get(static::CACHE_TYPES, function($item) {
                 $item->expiresAfter(30);
 
                 $typeTab = $this->getTypeTable();
@@ -2967,9 +3045,14 @@
             return $this;
         }
 
-        protected function isIndexPageCreated(): bool
+        public function isIndexPageCreated(): bool
         {
             $pagesTable = $this->getPagesTable();
+
+            if (!$pagesTable->isTableCerated())
+            {
+                return false;
+            }
 
             return !!$pagesTable->tableIns()
                 ->where($pagesTable->getIdentificationField(), '=', $this->makeIndexPageId())
@@ -2979,7 +3062,7 @@
         protected function isTypePageCreated(string|int $typePkId, string|int $pageNum): bool
         {
             $detailIdentifications = $this->getCacheManager()
-                ->get('telegraph:type_page_identifications', function($item) {
+                ->get(static::CACHE_TYPE_PAGE_IDENTIFICATIONS, function($item) {
                     $item->expiresAfter(3);
                     $pagesTable = $this->getPagesTable();
 
@@ -2995,7 +3078,7 @@
         protected function isDetailPageCreated(string|int $postPkId): bool
         {
             $detailIdentifications = $this->getCacheManager()
-                ->get('telegraph:detail_page_identifications', function($item) {
+                ->get(static::CACHE_TYPE_PAGE_IDENTIFICATIONS, function($item) {
                     $item->expiresAfter(3);
                     $pagesTable = $this->getPagesTable();
 
