@@ -673,7 +673,8 @@
                             $this->getToFileMoveScanner()
                                 ->logInfo('暂停' . $this->telegramMediaDownloadDelayInSecond . '秒');
 
-                            $this->getRedisClient()->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
+                            $this->getRedisClient()
+                                ->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
 
                             unlink($fullSourcePath);
 
@@ -1996,6 +1997,7 @@
                         $pageTab->getPageTypeField()        => static::PAGE_DETAIL,
                         $pageTab->getIsFirstTypePageField() => 0,
                         $pageTab->getPageNumField()         => 0,
+                        $pageTab->getFirstUpadtedField()    => 0,
                         $pageTab->getPostTypeIdField()      => $mission->post[$postTab->getTypeIdField()],
                         $pageTab->getPostIdField()          => $mission->post[$postTab->getPkField()],
                         $pageTab->getPageNumListField()     => '',
@@ -2387,7 +2389,7 @@
         }
 
         /*-------------------------------------------------------------------*/
-        public function updateDetailPageToQueue(): void
+        public function updateDetailPageToQueue(bool $isNewPageUpdateOnly = false): void
         {
             $pageTab = $this->getPagesTable();
             $typeTab = $this->getTypeTable();
@@ -2402,114 +2404,127 @@
                 ],
             ];
 
-            $pageTab->tableIns()->alias('webpages')
+            $temp = $pageTab->tableIns()->alias('webpages')
                 ->join($typeTab->getName() . ' type', 'webpages.' . $pageTab->getPostTypeIdField() . ' = type.' . $typeTab->getPkField(), 'left')
                 ->field(implode(',', [
                     'webpages.*',
                     'type.' . $typeTab->getNameField() . ' as type_name',
-                ]))->where($wherePageDetail)
-                ->chunk(100, function($pages) use ($wherePageDetail, $postTab, $fileTab, $pageTab, $typeTab) {
-                    foreach ($pages as $page)
+                ]))->where($wherePageDetail);
+
+            if ($isNewPageUpdateOnly)
+            {
+                $temp->where([
+                    [
+                        'webpages.' . $pageTab->getFirstUpadtedField(),
+                        '=',
+                        0,
+                    ],
+                ]);
+            }
+
+            $temp->chunk(100, function($pages) use ($wherePageDetail, $postTab, $fileTab, $pageTab, $typeTab) {
+                foreach ($pages as $page)
+                {
+                    $params = json_decode($page[$pageTab->getParamsField()], true);
+                    $token  = $params['token'];
+                    $post   = $params['post'];
+
+                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50) . '...';
+
+                    if (!$title)
                     {
-                        $params = json_decode($page[$pageTab->getParamsField()], true);
-                        $token  = $params['token'];
-                        $post   = $params['post'];
-
-                        $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50) . '...';
-
-                        if (!$title)
-                        {
-                            $title = '无标题贴';
-                        }
-                        $title = $this->makePageName($title);
-
-                        $files = $fileTab->tableIns()->where([
-                            [
-                                $fileTab->getPostIdField(),
-                                '=',
-                                $page[$pageTab->getPostIdField()],
-                            ],
-                        ])->order($fileTab->getPkField(), 'asc')->select();
-
-                        $prve_next_item = [];
-
-                        $prve = $pageTab->tableIns()->where($wherePageDetail)->where([
-                            [
-                                $pageTab->getPostTypeIdField(),
-                                '=',
-                                $page[$pageTab->getPostTypeIdField()],
-                            ],
-                            [
-                                $pageTab->getPostIdField(),
-                                '<',
-                                $page[$pageTab->getPostIdField()],
-                            ],
-
-                        ])->order($pageTab->getPostIdField(), 'desc')->find();
-                        if ($prve)
-                        {
-                            $prve_next_item[] = [
-                                "href"    => $prve[$pageTab->getUrlField()],
-                                "caption" => [
-                                    E::strong("[上一篇]: "),
-                                    $prve[$pageTab->getTitleField()],
-                                ],
-                            ];
-                        }
-
-                        $next = $pageTab->tableIns()->where($wherePageDetail)->where([
-                            [
-                                $pageTab->getPostTypeIdField(),
-                                '=',
-                                $page[$pageTab->getPostTypeIdField()],
-                            ],
-                            [
-                                $pageTab->getPostIdField(),
-                                '>',
-                                $page[$pageTab->getPostIdField()],
-                            ],
-
-                        ])->order($pageTab->getPostIdField(), 'asc')->find();
-                        if ($next)
-                        {
-                            $prve_next_item[] = [
-                                "href"    => $next[$pageTab->getUrlField()],
-                                "caption" => [
-                                    E::strong("[下一篇]: "),
-                                    $next[$pageTab->getTitleField()],
-                                ],
-                            ];
-                        }
-
-                        $prve_next = E::AListWithCaption1($prve_next_item, false);
-
-                        $this->telegraphPageStyle->updateDetailPage($post, $page, $prve_next, $files);
-
-                        $mission = new TelegraphMission();
-                        $mission->setTimeout($this->telegraphTimeout);
-                        $mission->token      = $token;
-                        $mission->detailPage = $page;
-                        $mission->title      = $title;
-
-                        if (!is_null($this->telegraphProxy))
-                        {
-                            $mission->setProxy($this->telegraphProxy);
-                        }
-
-                        $mission->setAccessToken($token);
-                        $mission->editPage($page['path'], $title, $this->telegraphPageStyle->toJson(), true);
-
-                        $this->telegraphQueueMissionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
-                        $this->telegraphQueueMissionManager->logInfo(implode([
-                            'updateDetailPageToQueue，',
-                            '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
-                            '标题:' . $mission->title . '，',
-                            'url: ' . $mission->detailPage[$pageTab->getUrlField()],
-                        ]));
-                        $this->updateDetailPageQueue->addNewMission($mission);
+                        $title = '无标题贴';
                     }
 
-                }, 'webpages.' . $pageTab->getPkField());
+                    $title = $this->makePageName($title);
+
+                    $files = $fileTab->tableIns()->where([
+                        [
+                            $fileTab->getPostIdField(),
+                            '=',
+                            $page[$pageTab->getPostIdField()],
+                        ],
+                    ])->order($fileTab->getPkField(), 'asc')->select();
+
+                    $prve_next_item = [];
+
+                    $prve = $pageTab->tableIns()->where($wherePageDetail)->where([
+                        [
+                            $pageTab->getPostTypeIdField(),
+                            '=',
+                            $page[$pageTab->getPostTypeIdField()],
+                        ],
+                        [
+                            $pageTab->getPostIdField(),
+                            '<',
+                            $page[$pageTab->getPostIdField()],
+                        ],
+
+                    ])->order($pageTab->getPostIdField(), 'desc')->find();
+                    if ($prve)
+                    {
+                        $prve_next_item[] = [
+                            "href"    => $prve[$pageTab->getUrlField()],
+                            "caption" => [
+                                E::strong("[上一篇]: "),
+                                $prve[$pageTab->getTitleField()],
+                            ],
+                        ];
+                    }
+
+                    $next = $pageTab->tableIns()->where($wherePageDetail)->where([
+                        [
+                            $pageTab->getPostTypeIdField(),
+                            '=',
+                            $page[$pageTab->getPostTypeIdField()],
+                        ],
+                        [
+                            $pageTab->getPostIdField(),
+                            '>',
+                            $page[$pageTab->getPostIdField()],
+                        ],
+
+                    ])->order($pageTab->getPostIdField(), 'asc')->find();
+                    if ($next)
+                    {
+                        $prve_next_item[] = [
+                            "href"    => $next[$pageTab->getUrlField()],
+                            "caption" => [
+                                E::strong("[下一篇]: "),
+                                $next[$pageTab->getTitleField()],
+                            ],
+                        ];
+                    }
+
+                    $prve_next = E::AListWithCaption1($prve_next_item, false);
+
+                    $this->telegraphPageStyle->updateDetailPage($post, $page, $prve_next, $files);
+
+                    $mission = new TelegraphMission();
+                    $mission->setTimeout($this->telegraphTimeout);
+                    $mission->token      = $token;
+                    $mission->detailPage = $page;
+                    $mission->title      = $title;
+
+                    if (!is_null($this->telegraphProxy))
+                    {
+                        $mission->setProxy($this->telegraphProxy);
+                    }
+
+                    $mission->setAccessToken($token);
+                    $mission->editPage($page['path'], $title, $this->telegraphPageStyle->toJson(), true);
+
+                    $this->telegraphQueueMissionManager->logInfo('updateDetailPageToQueue: ' . $page['id'] . ' - ' . $title);
+                    $this->telegraphQueueMissionManager->logInfo(implode([
+                        'updateDetailPageToQueue，',
+                        '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
+                        '标题:' . $mission->title . '，',
+                        'url: ' . $mission->detailPage[$pageTab->getUrlField()],
+                    ]));
+                    $this->updateDetailPageQueue->addNewMission($mission);
+                }
+
+            }, 'webpages.' . $pageTab->getPkField());
 
         }
 
@@ -2535,12 +2550,30 @@
 
                 if ($result['ok'])
                 {
-                    $this->telegraphQueueMissionManager->logInfo(implode([
-                        '更新成功，',
-                        '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
-                        '标题:' . $mission->title . '，',
-                        'url: ' . $mission->detailPage[$pageTab->getUrlField()],
-                    ]));
+                    $re = $pageTab->tableIns()->where([
+                        [
+                            $pageTab->getPkField(),
+                            '=',
+                            $mission->detailPage[$pageTab->getPkField()],
+                        ],
+                    ])->update([
+                        $pageTab->getFirstUpadtedField() => 1,
+                    ]);
+
+                    if ($re)
+                    {
+                        $this->telegraphQueueMissionManager->logInfo(implode([
+                            '更新成功，',
+                            '分类:' . $mission->detailPage[$pageTab->getPostTypeIdField()] . '，',
+                            '标题:' . $mission->title . '，',
+                            'url: ' . $mission->detailPage[$pageTab->getUrlField()],
+                        ]));
+                    }
+                    else
+                    {
+                        $this->telegraphQueueMissionManager->logError($json);
+                    }
+
                 }
                 else
                 {

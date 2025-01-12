@@ -34,8 +34,7 @@
     $manager->setTelegramWebHookUrl($url);
     $manager->setRedisConfig(db: 12);
 
-    $manager->setMysqlConfig(db: 'ithinkphp_telegraph_test01');
-//    $manager->setMysqlConfig('tg', '127.0.0.1', 'baseManager', 'jiojio00568');
+    $manager->setMysqlConfig(db: 'te_10100');
 
     $manager->setLocalServerPort(8081);
     $manager->setStatisticsPort(8082);

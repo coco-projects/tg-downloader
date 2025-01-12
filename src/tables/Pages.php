@@ -21,6 +21,7 @@
             "content"            => "`__FIELD__NAME__` text COLLATE utf8mb4_unicode_ci COMMENT '内容json',",
             "views"              => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT '查看次数',",
             "can_edit"           => "`__FIELD__NAME__` tinyint(3) unsigned NOT NULL DEFAULT '1' COMMENT '可编辑',",
+            "first_upadted"      => "`__FIELD__NAME__` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT '是否至少更新过一次',",
             "account"            => "`__FIELD__NAME__` int(1) unsigned NOT NULL DEFAULT '1' COMMENT '关联账号',",
             "token"              => "`__FIELD__NAME__` char(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '对应页面的token',",
             "page_type"          => "`__FIELD__NAME__` int(10) unsigned NOT NULL COMMENT '页面类型，1:首页，2:列表页，3:详情页',",
@@ -42,6 +43,7 @@
             "post_id"                  => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "page_num"                 => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "account"                  => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
+            "first_upadted"            => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "identification,page_type" => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
             "token"                    => "KEY `__INDEX__NAME___index` ( __FIELD__NAME__ ),",
         ];
@@ -164,6 +166,18 @@
         public function getCanEditField(): string
         {
             return $this->getFieldName('can_edit');
+        }
+
+        public function setFirstUpadtedField(string $value): static
+        {
+            $this->setFeildName('first_upadted', $value);
+
+            return $this;
+        }
+
+        public function getFirstUpadtedField(): string
+        {
+            return $this->getFieldName('first_upadted');
         }
 
         public function setAccountField(string $value): static
@@ -309,5 +323,6 @@
         {
             return $this->getFieldName('time');
         }
+
 
     }

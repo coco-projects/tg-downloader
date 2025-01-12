@@ -2,4 +2,4 @@
 
     require '../common.php';
 
-    $manager->updateDetailPageToQueue();
+    $manager->updateDetailPageToQueue(false);
