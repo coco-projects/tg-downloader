@@ -62,7 +62,6 @@
         protected int    $telegramMediaMaxFileSize = 1024 * 1024 * 200;
 
         protected ?string $mediaOwner          = 'www';
-        protected ?string $logNamespace;
         protected         $prefetchCndCallback = null;
 
         protected ?string $messageTableName = null;
@@ -72,23 +71,13 @@
         protected ?string $accountTableName = null;
         protected ?string $pagesTableName   = null;
 
+        protected ?string $logNamespace;
+        protected ?string $cacheNamespace;
         /*
          *
          * ------------------------------------------------------
          *
          */
-
-        const DOWNLOAD_LOCK_KEY      = 'download_lock_key';
-        const SCANNER_DOWNLOAD_MEDIA = 'download_media';
-        const SCANNER_FILE_MOVE      = 'file_move';
-        const SCANNER_MIGRATION      = 'migration';
-
-        const CACHE_TYPE_PAGE_IDENTIFICATIONS = 'telegraph_type_page_identifications';
-        const CACHE_ACCOUNT_TOKENS            = 'telegraph_account_tokens';
-        const CACHE_INDEX_PAGE                = 'telegraph_index_page';
-        const CACHE_FIRST_TYPE_PAGE           = 'telegraph_first_type_page';
-        const CACHE_RAND_DETAIL_PAGE          = 'telegraph_rand_detail_page';
-        const CACHE_TYPES                     = 'telegraph_types';
 
         protected ?string $telegramTempJsonPath               = null;
         protected ?string $telegramMediaStorePath             = null;
@@ -100,6 +89,7 @@
 
         protected int $localServerPort = 8081;
         protected int $statisticsPort  = 8082;
+
 
         /*
          *
@@ -153,6 +143,18 @@
         protected array $whereFileStatus2FileMoved;
         protected array $whereFileStatus3InPosted;
 
+        protected string $cacheAccountTokens;
+        protected string $cacheIndexPage;
+        protected string $cacheFirstTypePage;
+        protected string $cacheRandDetailPage;
+        protected string $cacheTypes;
+        protected string $cacheTypePageIdentifications;
+        protected string $cacheDetailPageIdentifications;
+        protected string $scannerDownloadMedia;
+        protected string $scannerFileMove;
+        protected string $scannerMigration;
+        protected string $downloadLockKey;
+
         public function __construct(protected string $bootToken, protected string $apiId, protected string $apiHash, protected string $basePath, protected string $redisNamespace, ?Container $container = null)
         {
             $this->envCheck();
@@ -166,15 +168,29 @@
                 $this->container = new Container();
             }
 
-            $this->redisNamespace .= '-tg-page-downloader';
-            $this->logNamespace   = $this->redisNamespace . ':tg-log:';
-            $this->basePath       = rtrim($this->basePath, '/');
+            $this->logNamespace   = $this->redisNamespace . '-log:';
+            $this->cacheNamespace = $this->redisNamespace . '-cache';
+
+            $this->basePath = rtrim($this->basePath, '/');
             is_dir($this->basePath) or mkdir($this->basePath, 0777, true);
             $this->basePath = realpath($this->basePath) . '/';
 
             $this->telegramTempJsonPath   = $this->basePath . 'json';
             $this->telegramMediaStorePath = $this->basePath . 'media';
             $this->telegramBotApiPath     = $this->basePath . 'telegramBotApi';
+
+            $this->cacheAccountTokens             = 'telegraph_account_tokens';
+            $this->cacheIndexPage                 = 'telegraph_index_page';
+            $this->cacheFirstTypePage             = 'telegraph_first_type_page';
+            $this->cacheRandDetailPage            = 'telegraph_rand_detail_page';
+            $this->cacheTypes                     = 'telegraph_types';
+            $this->cacheTypePageIdentifications   = 'telegraph_type_page_identifications';
+            $this->cacheDetailPageIdentifications = 'telegraph_detail_page_identifications';
+
+            $this->scannerDownloadMedia = $this->redisNamespace . ':scanner:' . 'download_media';
+            $this->scannerFileMove      = $this->redisNamespace . ':scanner:' . 'file_move';
+            $this->scannerMigration     = $this->redisNamespace . ':scanner:' . 'migration';
+            $this->downloadLockKey      = $this->redisNamespace . '-download_lock_key';
         }
 
         /*
@@ -408,7 +424,7 @@
                         return [];
                     }
 
-                    while ($this->getRedisClient()->get(static::DOWNLOAD_LOCK_KEY))
+                    while ($this->getRedisClient()->get($this->downloadLockKey))
                     {
                         $this->telegraphQueueMissionManager->logInfo('锁定中，等待...');
                         usleep(1000 * 250);
@@ -568,7 +584,7 @@
             $this->container->set('downloadMediaScanner', function(Container $container) {
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
+                $scanner->setName($this->scannerDownloadMedia);
 
                 $logName = 'te-loopScanner-download-media';
                 $scanner->setStandardLogger($logName);
@@ -626,7 +642,7 @@
         public function stopDownloadMedia(): void
         {
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
-                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_DOWNLOAD_MEDIA);
+                ->stop($this->scannerDownloadMedia);
         }
 
         /*
@@ -674,7 +690,7 @@
                                 ->logInfo('暂停' . $this->telegramMediaDownloadDelayInSecond . '秒');
 
                             $this->getRedisClient()
-                                ->setex(static::DOWNLOAD_LOCK_KEY, $this->telegramMediaDownloadDelayInSecond, 1);
+                                ->setex($this->downloadLockKey, $this->telegramMediaDownloadDelayInSecond, 1);
 
                             unlink($fullSourcePath);
 
@@ -813,7 +829,7 @@
 
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
+                $scanner->setName($this->scannerFileMove);
 
                 $logName = 'te-loopScanner-to-file-move';
                 $scanner->setStandardLogger($logName);
@@ -846,7 +862,7 @@
         public function stopFileMove(): void
         {
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
-                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_FILE_MOVE);
+                ->stop($this->scannerFileMove);
         }
         /*
          * ---------------------------------------------------------
@@ -1044,7 +1060,7 @@
 
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
                 $scanner->setDelayMs(3000);
-                $scanner->setName($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
+                $scanner->setName($this->scannerMigration);
 
                 $logName = 'te-loopScanner-migration';
                 $scanner->setStandardLogger($logName);
@@ -1077,7 +1093,7 @@
         public function stopMigration(): void
         {
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
-                ->stop($this->redisNamespace . ':scanner:' . static::SCANNER_MIGRATION);
+                ->stop($this->scannerMigration);
         }
 
         /*
@@ -1411,7 +1427,7 @@
         {
             $this->container->set('cacheManager', function(Container $container) {
                 $marshaller   = new DeflateMarshaller(new DefaultMarshaller());
-                $cacheManager = new RedisAdapter($container->get('redisClient'), $this->redisNamespace . '-tg-cache', 0, $marshaller);
+                $cacheManager = new RedisAdapter($container->get('redisClient'), $this->cacheNamespace, 0, $marshaller);
 
                 return $cacheManager;
             });
@@ -1942,7 +1958,6 @@
                         $mission->setProxy($this->telegraphProxy);
                     }
 
-//                    $title = "[" . date('Y-m-d') . "]" . $this->makePageName($title);
                     $title = $this->makePageName($title);
                     $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                     $mission->setAccessToken($token);
@@ -2117,9 +2132,11 @@
                     }
                     else
                     {
-                        if ($this->isTypePageCreated($type[$typeTab->getPkField()], $pageNow))
+                        $currentTypeId = $type[$typeTab->getPkField()];
+
+                        if ($this->isTypePageCreated($currentTypeId, $pageNow))
                         {
-                            $this->telegraphQueueMissionManager->logInfo('id:' . $type[$typeTab->getPkField()] . ' 分类页面已经创建，此任务被忽略');
+                            $this->telegraphQueueMissionManager->logInfo($currentTypeId . '-' . $pageNow . ' 分类页面已经创建，此任务被忽略');
 
                             continue;
                         }
@@ -2143,7 +2160,7 @@
                         $mission->setAccessToken($token);
                         $mission->createPage($title, $json, true);
 
-                        $this->telegraphQueueMissionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ' - ' . $pageNow);
+                        $this->telegraphQueueMissionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ':' . $currentTypeId . '-' . $pageNow);
 
                         $this->createTypeAllPageQueue->addNewMission($mission);
                     }
@@ -2679,7 +2696,7 @@
             $url = call_user_func_array($callback, [$path]);
             $mission->setTimeout(30000);
             $mission->setUrl($url);
-            $mission->setMethod('head');
+//            $mission->setMethod('head');
             $mission->addClientOptions('verify', false);
             $mission->addClientOptions('debug', $this->debug);
             $mission->url = $url;
@@ -2704,7 +2721,7 @@
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
             $success = function(HttpMission $mission) {
-//                只需要请求一次，不需要保持结果
+//                只需要请求一次，不需要使用结果
 //                $response = $mission->getResult();
 //                $contents = $response->getBody()->getContents();
 
@@ -2806,7 +2823,7 @@
 
         public function getRandToken(): string
         {
-            $tokens = $this->getCacheManager()->get(static::CACHE_ACCOUNT_TOKENS, function($item) {
+            $tokens = $this->getCacheManager()->get($this->cacheAccountTokens, function($item) {
                 $item->expiresAfter(30);
                 $tab = $this->getAccountTable();
 
@@ -2820,7 +2837,7 @@
 
         public function getIndexPageInfo(): array
         {
-            return $this->getCacheManager()->get(static::CACHE_INDEX_PAGE, function($item) {
+            return $this->getCacheManager()->get($this->cacheIndexPage, function($item) {
                 $item->expiresAfter(30);
 
                 $webPageTab = $this->getPagesTable();
@@ -2838,7 +2855,7 @@
 
         public function getTypeFirstPage(): array
         {
-            return $this->getCacheManager()->get(static::CACHE_FIRST_TYPE_PAGE, function($item) {
+            return $this->getCacheManager()->get($this->cacheFirstTypePage, function($item) {
                 $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
@@ -2902,7 +2919,7 @@
 
         public function getRandDetailPages($count = 10): array
         {
-            $detailPages = $this->getCacheManager()->get(static::CACHE_RAND_DETAIL_PAGE, function($item) {
+            $detailPages = $this->getCacheManager()->get($this->cacheRandDetailPage, function($item) {
                 $item->expiresAfter(30);
 
                 $pageTab = $this->getPagesTable();
@@ -3023,7 +3040,7 @@
 
         public function getTypes()
         {
-            $types = $this->getCacheManager()->get(static::CACHE_TYPES, function($item) {
+            $types = $this->getCacheManager()->get($this->cacheTypes, function($item) {
                 $item->expiresAfter(30);
 
                 $typeTab = $this->getTypeTable();
@@ -3095,8 +3112,8 @@
         protected function isTypePageCreated(string|int $typePkId, string|int $pageNum): bool
         {
             $detailIdentifications = $this->getCacheManager()
-                ->get(static::CACHE_TYPE_PAGE_IDENTIFICATIONS, function($item) {
-                    $item->expiresAfter(3);
+                ->get($this->cacheTypePageIdentifications, function($item) {
+                    $item->expiresAfter(5);
                     $pagesTable = $this->getPagesTable();
 
                     $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_TYPE)
@@ -3105,14 +3122,16 @@
                     return $ids;
                 });
 
-            return in_array($this->makeTypePageId($typePkId, $pageNum), $detailIdentifications);
+            $typeIdentification = $this->makeTypePageId($typePkId, $pageNum);
+
+            return in_array($typeIdentification, $detailIdentifications);
         }
 
         protected function isDetailPageCreated(string|int $postPkId): bool
         {
             $detailIdentifications = $this->getCacheManager()
-                ->get(static::CACHE_TYPE_PAGE_IDENTIFICATIONS, function($item) {
-                    $item->expiresAfter(3);
+                ->get($this->cacheDetailPageIdentifications, function($item) {
+                    $item->expiresAfter(5);
                     $pagesTable = $this->getPagesTable();
 
                     $ids = $pagesTable->tableIns()->where($pagesTable->getPageTypeField(), '=', static::PAGE_DETAIL)
