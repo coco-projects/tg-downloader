@@ -3296,7 +3296,21 @@
         {
             $redis = $this->getRedisClient();
 
-            $pattern = $this->logNamespace . ':*';
+            $pattern = $this->logNamespace . '*';
+
+            $keysToDelete = $redis->keys($pattern);
+
+            foreach ($keysToDelete as $key)
+            {
+                $redis->del($key);
+            }
+        }
+
+        public function deleteCache(): void
+        {
+            $redis = $this->getRedisClient();
+
+            $pattern = $this->cacheNamespace . '*';
 
             $keysToDelete = $redis->keys($pattern);
 
