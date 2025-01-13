@@ -341,16 +341,16 @@
         },
         {
             "name": "coco-project/table-manager",
-            "version": "v1.0.10",
+            "version": "v1.0.11",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/table-manager.git",
-                "reference": "20c83a23693808270a1d894158d956e973b77122"
+                "reference": "8f864bb50f8bb73256254953e549d68e6ee7a583"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/table-manager/zipball/20c83a23693808270a1d894158d956e973b77122",
-                "reference": "20c83a23693808270a1d894158d956e973b77122",
+                "url": "https://api.github.com/repos/coco-projects/table-manager/zipball/8f864bb50f8bb73256254953e549d68e6ee7a583",
+                "reference": "8f864bb50f8bb73256254953e549d68e6ee7a583",
                 "shasum": ""
             },
             "require": {
@@ -377,9 +377,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/table-manager/issues",
-                "source": "https://github.com/coco-projects/table-manager/tree/v1.0.10"
+                "source": "https://github.com/coco-projects/table-manager/tree/v1.0.11"
             },
-            "time": "2025-01-03T12:32:09+00:00"
+            "time": "2025-01-13T02:44:11+00:00"
         },
         {
             "name": "coco-project/telegraph",
