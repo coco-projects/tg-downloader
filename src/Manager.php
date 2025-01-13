@@ -2101,7 +2101,7 @@
 
                 $typeName = $type[$typeTab->getNameField()];
 
-                //当前分类总记录数
+                //当前分类总页面记录数
                 $count = $pageTab->tableIns()->where($wherePageDetail)
                     ->where([$pageTab->getPostTypeIdField() => $typeId])->count();
 
@@ -2109,61 +2109,39 @@
                 $totalPages = (int)ceil($count / $this->telegraphPageRow);
 
                 //生成当前分类页数信息，为每页构造列表页面
-                for ($pageNow = 1; $pageNow <= $totalPages; $pageNow++)
+                //分类第1页已经生成过，从第2页开始
+                for ($pageNow = 2; $pageNow <= $totalPages; $pageNow++)
                 {
-                    $results = $pageTab->tableIns()->where($wherePageDetail)
-                        ->where([$pageTab->getPostTypeIdField() => $typeId,])->order($pageTab->getPostIdField(), 'asc')
-                        ->paginate([
-                            'list_rows' => $this->telegraphPageRow,
-                            'page'      => $pageNow,
-                        ]);
+                    $currentTypeId = $type[$typeTab->getPkField()];
 
-                    preg_match_all('%\d+(?=</a>|</span>)%im', (string)$results->render(), $result, PREG_PATTERN_ORDER);
-                    $pagesNum = $result[0];
-
-                    sort($pagesNum);
-                    //如果是第一页，要更新之前生成的第一页的数据
-                    if ($pageNow == 1)
+                    if ($this->isTypePageCreated($currentTypeId, $pageNow))
                     {
-                        $pageTab->tableIns()->where($wherePageType)->where([$pageTab->getIsFirstTypePageField() => 1,])
-                            ->where([$pageTab->getPostTypeIdField() => $typeId,])->update([
-                                $pageTab->getPageNumListField() => implode(',', $pagesNum),
-                            ]);
+                        $this->telegraphQueueMissionManager->logInfo($currentTypeId . '-' . $pageNow . ' 分类页面已经创建，此任务被忽略');
+
+                        continue;
                     }
-                    else
+
+                    $token = $this->getRandToken();
+
+                    $mission = new TelegraphMission();
+                    $mission->setTimeout($this->telegraphTimeout);
+                    $mission->token    = $token;
+                    $mission->typeInfo = $type;
+                    $mission->pageNow  = $pageNow;
+
+                    if (!is_null($this->telegraphProxy))
                     {
-                        $currentTypeId = $type[$typeTab->getPkField()];
-
-                        if ($this->isTypePageCreated($currentTypeId, $pageNow))
-                        {
-                            $this->telegraphQueueMissionManager->logInfo($currentTypeId . '-' . $pageNow . ' 分类页面已经创建，此任务被忽略');
-
-                            continue;
-                        }
-
-                        $token = $this->getRandToken();
-
-                        $mission = new TelegraphMission();
-                        $mission->setTimeout($this->telegraphTimeout);
-                        $mission->token    = $token;
-                        $mission->typeInfo = $type;
-                        $mission->pageNow  = $pageNow;
-                        $mission->pagesNum = $pagesNum;
-
-                        if (!is_null($this->telegraphProxy))
-                        {
-                            $mission->setProxy($this->telegraphProxy);
-                        }
-
-                        $title = $this->makePageName($typeName);
-                        $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
-                        $mission->setAccessToken($token);
-                        $mission->createPage($title, $json, true);
-
-                        $this->telegraphQueueMissionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ':' . $currentTypeId . '-' . $pageNow);
-
-                        $this->createTypeAllPageQueue->addNewMission($mission);
+                        $mission->setProxy($this->telegraphProxy);
                     }
+
+                    $title = $this->makePageName($typeName);
+                    $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
+                    $mission->setAccessToken($token);
+                    $mission->createPage($title, $json, true);
+
+                    $this->telegraphQueueMissionManager->logInfo('createTypeAllPageToQueue: ' . $typeName . ':' . $currentTypeId . '-' . $pageNow);
+
+                    $this->createTypeAllPageQueue->addNewMission($mission);
                 }
             }
 
@@ -2206,7 +2184,7 @@
                         $pageTab->getPageNumField()         => $mission->pageNow,
                         $pageTab->getPostTypeIdField()      => $mission->typeInfo[$typeTab->getPkField()],
                         $pageTab->getPostIdField()          => 0,
-                        $pageTab->getPageNumListField()     => implode(',', $mission->pagesNum),
+                        $pageTab->getPageNumListField()     => '',
                         $pageTab->getParamsField()          => json_encode([
                             "type" => $mission->typeInfo,
                         ], 256),
@@ -2271,6 +2249,56 @@
                     static::PAGE_DETAIL,
                 ],
             ];
+
+            //所有涉及到的分类
+            $typeIds = $pageTab->tableIns()->where($wherePageDetail)->group($pageTab->getPostTypeIdField())
+                ->column($pageTab->getPostTypeIdField());
+
+            //遍历分类，生成分页信息
+            foreach ($typeIds as $k => $typeId)
+            {
+                //查出分类详细信息
+                $type = $typeTab->tableIns()->where([$typeTab->getPkField() => $typeId])->find();
+
+                $typeName = $type[$typeTab->getNameField()];
+
+                //当前分类总记录数
+                $count = $pageTab->tableIns()->where($wherePageDetail)
+                    ->where([$pageTab->getPostTypeIdField() => $typeId])->count();
+
+                //折合总页数
+                $totalPages = (int)ceil($count / $this->telegraphPageRow);
+
+                //生成当前分类页数信息，为每页构造列表页面
+                for ($pageNow = 1; $pageNow <= $totalPages; $pageNow++)
+                {
+                    $results = $pageTab->tableIns()->where($wherePageDetail)
+                        ->where([$pageTab->getPostTypeIdField() => $typeId,])->order($pageTab->getPostIdField(), 'asc')
+                        ->paginate([
+                            'list_rows' => $this->telegraphPageRow,
+                            'page'      => $pageNow,
+                        ]);
+
+                    preg_match_all('%\d+(?=</a>|</span>)%im', (string)$results->render(), $result, PREG_PATTERN_ORDER);
+                    $pagesNum = $result[0];
+
+                    sort($pagesNum);
+
+                    $pageTab->tableIns()->where([
+                        $pageTab->getIdentificationField() => $this->makeTypePageId($typeId, $pageNow),
+                    ])->update([
+                        $pageTab->getPageNumListField() => implode(',', $pagesNum),
+                    ]);
+
+                    $this->telegraphQueueMissionManager->logInfo(implode([
+                        '更新分页列表: ',
+                        $this->makeTypePageId($typeId, $pageNow),
+                        ' => ',
+                        '[' . implode(',', $pagesNum) . ']',
+                    ]));
+
+                }
+            }
 
             //查询遍历所有的详情页面
             $typePages = $pageTab->tableIns()->where($wherePageType)->cursor();
@@ -2350,8 +2378,7 @@
 
                 $this->telegraphQueueMissionManager->logInfo(implode([
                     'updateTypeAllPageToQueue，',
-                    '分类:' . $typePage[$pageTab->getPostTypeIdField()] . '，',
-                    '页码:' . $typePage[$pageTab->getPageNumField()] . '，',
+                    '[' . $this->makeTypePageId($typePage[$pageTab->getPostTypeIdField()], $typePage[$pageTab->getPostTypeIdField()]) . ']，',
                     'url: ' . $typePage[$pageTab->getUrlField()],
                     $title,
                 ]));
@@ -2385,8 +2412,7 @@
                 {
                     $this->telegraphQueueMissionManager->logInfo(implode([
                         '更新成功，',
-                        '分类:' . $mission->typePage[$pageTab->getPostTypeIdField()] . '，',
-                        '页码:' . $mission->typePage[$pageTab->getPageNumField()] . '，',
+                        '[' . $this->makeTypePageId($mission->typePage[$pageTab->getPostTypeIdField()], $mission->typePage[$pageTab->getPostTypeIdField()]) . ']，',
                         'url: ' . $mission->typePage[$pageTab->getUrlField()],
                     ]));
                 }
@@ -2702,8 +2728,7 @@
             $mission->url = $url;
 
             $this->telegraphQueueMissionManager->logInfo(implode([
-                'cdnPrefetchQueue，',
-                'url: ' . $url,
+                'cdnPrefetchQueue，url: ' . $url,
             ]));
 
             $this->cdnPrefetchQueue->addNewMission($mission);

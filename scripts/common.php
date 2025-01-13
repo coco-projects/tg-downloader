@@ -19,7 +19,7 @@
         $config['apiId'],
         $config['apiHash'],
         __DIR__ . '/../data',
-        'space1'
+        'te_10100'
     );
 
     $manager->setDebug(true);
