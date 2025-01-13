@@ -583,7 +583,7 @@
         {
             $this->container->set('downloadMediaScanner', function(Container $container) {
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
-                $scanner->setDelayMs(3000);
+                $scanner->setDelayMs(5000);
                 $scanner->setName($this->scannerDownloadMedia);
 
                 $logName = 'te-loopScanner-download-media';
@@ -828,7 +828,7 @@
             $this->container->set('toFileMove', function(Container $container) {
 
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
-                $scanner->setDelayMs(3000);
+                $scanner->setDelayMs(5000);
                 $scanner->setName($this->scannerFileMove);
 
                 $logName = 'te-loopScanner-to-file-move';
@@ -1059,7 +1059,7 @@
             $this->container->set('migration', function(Container $container) {
 
                 $scanner = new LoopScanner(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb);
-                $scanner->setDelayMs(3000);
+                $scanner->setDelayMs(5000);
                 $scanner->setName($this->scannerMigration);
 
                 $logName = 'te-loopScanner-migration';
