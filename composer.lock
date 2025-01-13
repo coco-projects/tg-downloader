@@ -257,16 +257,16 @@
         },
         {
             "name": "coco-project/scanner",
-            "version": "v1.0.13",
+            "version": "v1.0.14",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/scanner.git",
-                "reference": "556fbd766762404eca30e9e2d6c91290c8d4c610"
+                "reference": "e4ed341569c8730661e37b86458016e41f0b37d8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/scanner/zipball/556fbd766762404eca30e9e2d6c91290c8d4c610",
-                "reference": "556fbd766762404eca30e9e2d6c91290c8d4c610",
+                "url": "https://api.github.com/repos/coco-projects/scanner/zipball/e4ed341569c8730661e37b86458016e41f0b37d8",
+                "reference": "e4ed341569c8730661e37b86458016e41f0b37d8",
                 "shasum": ""
             },
             "require": {
@@ -295,9 +295,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/scanner/issues",
-                "source": "https://github.com/coco-projects/scanner/tree/v1.0.13"
+                "source": "https://github.com/coco-projects/scanner/tree/v1.0.14"
             },
-            "time": "2024-12-25T06:39:43+00:00"
+            "time": "2025-01-13T07:08:25+00:00"
         },
         {
             "name": "coco-project/snowflake",
