@@ -128,7 +128,7 @@
 
         protected MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
-        protected int            $telegraphPageRow        = 100;
+        protected int            $telegraphPageRow        = 50;
         protected int            $telegraphTimeout        = 30;
         protected int            $telegraphQueueMaxTimes  = 10;
         protected ?string        $telegraphPageBrandTitle = 'telegraph-pages';
@@ -2787,13 +2787,6 @@
         public function setTelegraphPageBrandTitle(?string $telegraphPageBrandTitle): static
         {
             $this->telegraphPageBrandTitle = $telegraphPageBrandTitle;
-
-            return $this;
-        }
-
-        public function setTelegraphPageRow(int $telegraphPageRow): static
-        {
-            $this->telegraphPageRow = $telegraphPageRow;
 
             return $this;
         }

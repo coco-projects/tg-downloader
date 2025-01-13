@@ -59,7 +59,6 @@
     $manager->setTelegraphPageStyle($style);
     $manager->setTelegraphProxy('192.168.0.111:1080');
     $manager->setTelegraphPageBrandTitle('汪汪');
-    $manager->setTelegraphPageRow(5);
     $manager->setTelegraphQueueMaxTimes(50);
     $manager->setTelegraphQueueDelayMs(0);
     $manager->setTelegraphTimeout(50);
