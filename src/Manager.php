@@ -1837,7 +1837,7 @@
                     $mission->setProxy($this->telegraphProxy);
                 }
 
-                $title = $this->makePageName($typeName);
+                $title = $typeName;
                 $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                 $mission->setAccessToken($token);
                 $mission->createPage($title, $json, true);
@@ -1939,27 +1939,30 @@
 
                         continue;
                     }
-
                     $token = $this->getRandToken();
-                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50);
+
+                    $post[$postTab->getContentsField()] = static::cleanText($post[$postTab->getContentsField()]);
+
+                    $title = static::inlineText($post[$postTab->getContentsField()]);
+                    $title = static::truncateUtf8String($title, 50);
 
                     if (!$title)
                     {
-                        $title = '无标题贴';
+                        $title = '无标题-' . hrtime(true);
                     }
 
                     $mission = new TelegraphMission();
                     $mission->setTimeout($this->telegraphTimeout);
                     $mission->token = $token;
                     $mission->post  = $post;
+                    $mission->title = $title;
 
                     if (!is_null($this->telegraphProxy))
                     {
                         $mission->setProxy($this->telegraphProxy);
                     }
 
-                    $title = $this->makePageName($title);
-                    $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
+                    $json = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                     $mission->setAccessToken($token);
                     $mission->createPage($title, $json, true);
 
@@ -2034,14 +2037,7 @@
 
                     if ($re)
                     {
-                        $title = static::truncateUtf8String($mission->post[$postTab->getContentsField()], 50);
-
-                        if (!$title)
-                        {
-                            $title = '无标题贴';
-                        }
-
-                        $this->telegraphQueueMissionManager->logInfo('ok-' . $this->makePageName($title));
+                        $this->telegraphQueueMissionManager->logInfo('ok-' . $result['result']['title']);
                     }
                     else
                     {
@@ -2134,7 +2130,7 @@
                         $mission->setProxy($this->telegraphProxy);
                     }
 
-                    $title = $this->makePageName($typeName);
+                    $title = $typeName;
                     $json  = $this->telegraphPageStyle->placeHolder($title . ' 建设中...');
                     $mission->setAccessToken($token);
                     $mission->createPage($title, $json, true);
@@ -2307,7 +2303,7 @@
             {
                 $params   = json_decode($typePage[$pageTab->getParamsField()], true);
                 $typeInfo = $params['type'];
-                $title    = $this->makePageName($typeInfo[$this->getTypeTable()->getNameField()]);
+                $title    = $typeInfo[$this->getTypeTable()->getNameField()];
 
                 //分页按钮
                 $pageUrls = $pageTab->tableIns()->where($wherePageType)->where([
@@ -2468,18 +2464,13 @@
             $temp->chunk(100, function($pages) use ($wherePageDetail, $postTab, $fileTab, $pageTab, $typeTab) {
                 foreach ($pages as $page)
                 {
+                    $title = $page[$pageTab->getTitleField()];
+
                     $params = json_decode($page[$pageTab->getParamsField()], true);
                     $token  = $params['token'];
                     $post   = $params['post'];
 
-                    $title = static::truncateUtf8String($post[$postTab->getContentsField()], 50) . '...';
-
-                    if (!$title)
-                    {
-                        $title = '无标题贴';
-                    }
-
-                    $title = $this->makePageName($title);
+                    $post['title'] = $title;
 
                     $files = $fileTab->tableIns()->where([
                         [
@@ -3074,14 +3065,6 @@
         }
 
 
-        protected function makePageName(string $name): string
-        {
-            $res   = [];
-            $res[] = preg_replace('#[\r\n]+#iu', ' ', $name);
-
-            return implode('', $res);
-        }
-
         protected function makeIndexPageId(): string
         {
             return '-';
@@ -3375,5 +3358,32 @@
         {
             // 使用 mb_substr 来截取字符串，确保是按字符而非字节截取
             return mb_substr($string, 0, $length, 'UTF-8');
+        }
+
+        public static function inlineText(string $subject): array|string|null
+        {
+            $result = preg_replace('#\s+#iu', ' ', $subject);
+            $result = static::cleanText($result);
+
+            return $result;
+        }
+
+        public static function cleanText(string $subject): array|string|null
+        {
+            $subject = trim($subject);
+
+            //最前面的问号去掉
+            $result = preg_replace('/^[\?\s]+/ium', '', $subject);
+
+            //最后的问号如果个数超过2个，最多保留一个
+            $result = preg_replace('/\?{2,}$/ium', '?', $result);
+
+            //中间的问号，最多保留一个
+            $result = preg_replace('/\?{2,}/ium', '?', $result);
+
+            //连续空格最多保留一个
+            $result = preg_replace('/[ \t]+/ium', ' ', $result);
+
+            return $result;
         }
     }

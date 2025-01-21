@@ -341,16 +341,16 @@
         },
         {
             "name": "coco-project/table-manager",
-            "version": "v1.0.11",
+            "version": "v1.0.13",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/table-manager.git",
-                "reference": "8f864bb50f8bb73256254953e549d68e6ee7a583"
+                "reference": "9886da5c2b2a45ac98984586b1e6c271645ecfa9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/table-manager/zipball/8f864bb50f8bb73256254953e549d68e6ee7a583",
-                "reference": "8f864bb50f8bb73256254953e549d68e6ee7a583",
+                "url": "https://api.github.com/repos/coco-projects/table-manager/zipball/9886da5c2b2a45ac98984586b1e6c271645ecfa9",
+                "reference": "9886da5c2b2a45ac98984586b1e6c271645ecfa9",
                 "shasum": ""
             },
             "require": {
@@ -377,9 +377,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/table-manager/issues",
-                "source": "https://github.com/coco-projects/table-manager/tree/v1.0.11"
+                "source": "https://github.com/coco-projects/table-manager/tree/v1.0.13"
             },
-            "time": "2025-01-13T02:44:11+00:00"
+            "time": "2025-01-21T03:06:53+00:00"
         },
         {
             "name": "coco-project/telegraph",
@@ -950,16 +950,16 @@
         },
         {
             "name": "php-di/invoker",
-            "version": "2.3.4",
+            "version": "2.3.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/PHP-DI/Invoker.git",
-                "reference": "33234b32dafa8eb69202f950a1fc92055ed76a86"
+                "reference": "59f15608528d8a8838d69b422a919fd6b16aa576"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/PHP-DI/Invoker/zipball/33234b32dafa8eb69202f950a1fc92055ed76a86",
-                "reference": "33234b32dafa8eb69202f950a1fc92055ed76a86",
+                "url": "https://api.github.com/repos/PHP-DI/Invoker/zipball/59f15608528d8a8838d69b422a919fd6b16aa576",
+                "reference": "59f15608528d8a8838d69b422a919fd6b16aa576",
                 "shasum": ""
             },
             "require": {
@@ -993,7 +993,7 @@
             ],
             "support": {
                 "issues": "https://github.com/PHP-DI/Invoker/issues",
-                "source": "https://github.com/PHP-DI/Invoker/tree/2.3.4"
+                "source": "https://github.com/PHP-DI/Invoker/tree/2.3.6"
             },
             "funding": [
                 {
@@ -1001,7 +1001,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2023-09-08T09:24:21+00:00"
+            "time": "2025-01-17T12:49:27+00:00"
         },
         {
             "name": "php-di/php-di",
@@ -2683,16 +2683,16 @@
         },
         {
             "name": "topthink/think-orm",
-            "version": "v3.0.33",
+            "version": "v3.0.34",
             "source": {
                 "type": "git",
                 "url": "https://github.com/top-think/think-orm.git",
-                "reference": "6e0ea679f7448ff9c8906606462505597681e22e"
+                "reference": "715e55da149fe32a12d68ef10e5b00e70bd3dbec"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/top-think/think-orm/zipball/6e0ea679f7448ff9c8906606462505597681e22e",
-                "reference": "6e0ea679f7448ff9c8906606462505597681e22e",
+                "url": "https://api.github.com/repos/top-think/think-orm/zipball/715e55da149fe32a12d68ef10e5b00e70bd3dbec",
+                "reference": "715e55da149fe32a12d68ef10e5b00e70bd3dbec",
                 "shasum": ""
             },
             "require": {
@@ -2735,9 +2735,9 @@
             ],
             "support": {
                 "issues": "https://github.com/top-think/think-orm/issues",
-                "source": "https://github.com/top-think/think-orm/tree/v3.0.33"
+                "source": "https://github.com/top-think/think-orm/tree/v3.0.34"
             },
-            "time": "2024-12-19T01:52:44+00:00"
+            "time": "2025-01-14T06:03:33+00:00"
         }
     ],
     "packages-dev": [

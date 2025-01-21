@@ -111,20 +111,12 @@
 
             $contents = $postInfo[$postTable->getContentsField()];
 
-            $title = '无标题';
-            if ($contents)
-            {
-                $title = $this->manager::truncateUtf8String($contents, 50);
-            }
-
-            $title = preg_replace('#[\r\n]+#iu', ' ', $title);
-
             $typeName = $page['type_name'];
             $this->addPageElements($prve_next);
             $this->addPageElements(E::splitLine());
 
             $this->addPageElements(E::strong($typeName));
-            $this->addPageElements(E::strong(E::span(' > ' . $title)));
+            $this->addPageElements(E::strong(E::span(' > ' . $postInfo['title'])));
             $this->addPageElements(E::br());
 
             $videos    = [];
