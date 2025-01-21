@@ -162,7 +162,24 @@
                 foreach ($lines as $k => $line)
                 {
                     $line = trim($line);
-                    $this->addPageElements(E::p($line));
+
+                    $sections = preg_split('#(https?://\S+)#iu', $line, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+                    $elements = [];
+
+                    foreach ($sections as $k => $v)
+                    {
+                        if (str_starts_with($v, 'http'))
+                        {
+                            $elements[] = E::a($v);
+                        }
+                        else
+                        {
+                            $elements[] = $v;
+                        }
+                    }
+
+                    $this->addPageElements(E::p($elements));
                 }
 
                 //youtube
