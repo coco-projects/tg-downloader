@@ -2228,6 +2228,8 @@
             $postTab = $this->getPostTable();
             $pageTab = $this->getPagesTable();
 
+            $this->syncType();
+
             //所有分类页面
             $wherePageType = [
                 [
@@ -3319,6 +3321,65 @@
             {
                 $redis->del($key);
             }
+        }
+        
+        public function syncType(): void
+        {
+            $pageTab = $this->getPagesTable();
+
+            //所有分类页面
+            $wherePageType = [
+                [
+                    $pageTab->getPageTypeField(),
+                    '=',
+                    static::PAGE_TYPE,
+                ],
+            ];
+
+            $typePages = $pageTab->tableIns()->where($wherePageType)
+                ->field(implode(',', [
+                $pageTab->getPkField(),
+                $pageTab->getParamsField(),
+            ]))->select();
+
+            $types = $this->getTypeList();
+
+            $typeArr = [];
+
+            array_map(function($type) use (&$typeArr) {
+                $typeArr[$type['id']] = $type;
+            },$types->toArray());
+
+            foreach ($typePages as $k => $pageInfo)
+            {
+                $pageTypeParam = json_decode($pageInfo['params'], true);
+                if (isset($pageTypeParam['type']))
+                {
+                    //pages 表中的param属性
+                    $paramTypeInfo = $pageTypeParam['type'];
+
+                    if (isset($typeArr[$paramTypeInfo['id']]))
+                    {
+                        //type表的数据
+                        $originalTypeInfo = $typeArr[$paramTypeInfo['id']];
+
+                        //如果不想等，就把type表的数据更新到 pages 表中的param属性
+                        if ($originalTypeInfo['name'] != $paramTypeInfo['name'])
+                        {
+                            $pageTab->tableIns()
+                                ->where($pageTab->getPkField(), '=', $pageInfo[$pageTab->getPkField()])
+                                ->update([
+                                    $pageTab->getParamsField() => json_encode([
+                                        "type" => $originalTypeInfo,
+                                    ],256),
+                                ]);
+
+                        }
+                    }
+
+                }
+            }
+
         }
 
         protected function envCheck(): void
