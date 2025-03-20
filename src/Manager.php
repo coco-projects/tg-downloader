@@ -1168,7 +1168,9 @@
 
         public function isTelegramBotApiStarted(): bool
         {
-            $processes = $this->getTelegramBotApi()->getProcessListByKeyword('telegram-bot-api');
+            $binPath = dirname(__DIR__) . '/tg-bot-server/bin/telegram-bot-api';
+
+            $processes = $this->getTelegramBotApi()->getProcessListByKeyword($binPath);
 
             return count($processes) > 0;
         }
