@@ -4,7 +4,9 @@
 
     namespace Coco\tgDownloader;
 
+    use Coco\queue\missionProcessors\CallableMissionProcessor;
     use Coco\queue\missionProcessors\GuzzleMissionProcessor;
+    use Coco\queue\missions\CallableMission;
     use Coco\queue\missions\HttpMission;
     use Coco\queue\resultProcessor\CustomResultProcessor;
     use Coco\tgDownloader\styles\StyleAbstract;
@@ -115,6 +117,7 @@
         const UPDATE_DETAIL_PAGE_QUEUE     = 'UPDATE_DETAIL_PAGE';
         const UPDATE_INDEX_PAGE_QUEUE      = 'UPDATE_INDEX_PAGE';
         const CDN_PREFETCH_QUEUE           = 'CDN_PREFETCH';
+        const MAKE_VIDEO_COVER_QUEUE       = 'MAKE_VIDEO_COVER';
 
         public Queue $createAccountQueue;
         public Queue $createIndexPageQueue;
@@ -125,6 +128,7 @@
         public Queue $updateDetailPageQueue;
         public Queue $updateIndexPageQueue;
         public Queue $cdnPrefetchQueue;
+        public Queue $makeVideoCoverQueue;
 
         protected MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
@@ -1566,39 +1570,6 @@
          * ---------------------------------------------------------
          *
          * */
-        protected static function makePath(string $input, string $fileType): string
-        {
-            $year        = date('Y');
-            $month       = date('m');
-            $day         = date('d');
-            $firstLetter = strtoupper(substr(md5($input), 0, 1));
-
-            return "$year-$month/$day/$fileType/$firstLetter/" . hrtime(true);
-        }
-
-        protected static function parseField(string $line): array
-        {
-            $res = explode("\t", $line);
-
-            $key   = array_shift($res);
-            $value = $res;
-
-            return [
-                "key"   => $key,
-                "value" => $value,
-            ];
-        }
-
-        protected static function parseLine(string $data): array
-        {
-            return preg_split('#[\r\n]+#', $data, -1, PREG_SPLIT_NO_EMPTY);
-        }
-
-        /*
-         *
-         * ---------------------------------------------------------
-         *
-         * */
 
         protected function makeMediaGroupCountName($mediaGroupId): string
         {
@@ -2758,6 +2729,111 @@
         }
 
         /*-------------------------------------------------------------------*/
+        public function makeVideoCoverToQueue(string $postId, string $mediaGroupId, string $videoPath, callable $callback): void
+        {
+            $videoFullPath = call_user_func_array($callback, [$videoPath]);
+            if (!is_file($videoFullPath))
+            {
+                return;
+            }
+
+            $fullCoverPath = strtr($videoFullPath, ["videos" => "photos"]);
+            $fullCoverPath = preg_replace('/[^.]+$/im', 'jpg', $fullCoverPath);
+
+            $saveCoverPath = strtr($videoPath, ["videos" => "photos"]);
+            $saveCoverPath = preg_replace('/[^.]+$/im', 'jpg', $saveCoverPath);
+
+            is_dir(dirname($fullCoverPath)) or mkdir(dirname($fullCoverPath), 777, true);
+
+            $mission                = new CallableMission();
+            $mission->videoFullPath = $videoFullPath;
+            $mission->fullCoverPath = $fullCoverPath;
+            $mission->saveCoverPath = $saveCoverPath;
+            $mission->postId        = $postId;
+            $mission->mediaGroupId  = $mediaGroupId;
+
+            $mission->setParameters([
+                $videoFullPath,
+                $fullCoverPath,
+            ]);
+
+            $mission->setCallback(function($fileFullPath, $coverPath) {
+                $ffmpeg = \FFMpeg\FFMpeg::create([
+                    'ffmpeg.binaries'  => dirname(__DIR__) . '/tg-bot-server/bin/ffmpeg',
+                    'ffprobe.binaries' => dirname(__DIR__) . '/tg-bot-server/bin/ffprobe',
+                    'timeout'          => 36000,
+                    'ffmpeg.threads'   => 12,
+                ]);
+
+                $video = $ffmpeg->open($fileFullPath);
+                $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(3))->save($coverPath);
+            });
+
+            $this->telegraphQueueMissionManager->logInfo(implode([
+                'makeVideoCoverQueue，psth: ' . $fullCoverPath,
+            ]));
+
+            $this->makeVideoCoverQueue->addNewMission($mission);
+        }
+
+        public function listenMakeVideoCover(): void
+        {
+            $queue = $this->makeVideoCoverQueue;
+
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new CallableMissionProcessor());
+
+            $success = function(CallableMission $mission) {
+
+//                $mission->videoFullPath = $videoFullPath;
+//                $mission->fullCoverPath = $fullCoverPath;
+//                $mission->saveCoverPath = $saveCoverPath;
+//                $mission->postId        = $postId;
+//                $mission->mediaGroupId  = $mediaGroupId;
+
+                //怕文件还没写好
+                usleep(1000 * 50);
+
+                //封面图片信息写入数据库
+                $fileTable = $this->getFileTable();
+                $result    = $fileTable->tableIns()->insert([
+                    $fileTable->getPkField()           => $fileTable->calcPk(),
+                    $fileTable->getPostIdField()       => $mission->postId,
+                    $fileTable->getPathField()         => $mission->saveCoverPath,
+                    $fileTable->getFileSizeField()     => filesize($mission->fullCoverPath),
+                    $fileTable->getFileNameField()     => '--cover--',
+                    $fileTable->getExtField()          => 'jpg',
+                    $fileTable->getMimeTypeField()     => 'image/jpeg',
+                    $fileTable->getMediaGroupIdField() => $mission->mediaGroupId,
+                    $fileTable->getTimeField()         => time(),
+                ]);
+
+                if ($result == 1)
+                {
+                    $msg = 'makeVideoCover success：' . $mission->coverPath;
+                }
+                else
+                {
+                    $msg = 'makeVideoCover error：' . $mission->coverPath;
+                }
+
+                $this->telegraphQueueMissionManager->logInfo($msg);
+            };
+
+            $catch = function(CallableMission $mission, \Exception $exception) {
+                $this->telegraphQueueMissionManager->logError($exception->getMessage());
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
 
         public function queueMonitor(): void
         {
@@ -3096,6 +3172,7 @@
             $this->updateDetailPageQueue    = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_DETAIL_PAGE_QUEUE);
             $this->updateIndexPageQueue     = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
             $this->cdnPrefetchQueue         = $this->telegraphQueueMissionManager->initQueue(static::CDN_PREFETCH_QUEUE);
+            $this->makeVideoCoverQueue      = $this->telegraphQueueMissionManager->initQueue(static::MAKE_VIDEO_COVER_QUEUE);
 
             return $this;
         }
@@ -3156,6 +3233,34 @@
         * ------------------------------------------------------
         *
         */
+
+        protected static function makePath(string $input, string $fileType): string
+        {
+            $year        = date('Y');
+            $month       = date('m');
+            $day         = date('d');
+            $firstLetter = strtoupper(substr(md5($input), 0, 1));
+
+            return "$year-$month/$day/$fileType/$firstLetter/" . hrtime(true);
+        }
+
+        protected static function parseField(string $line): array
+        {
+            $res = explode("\t", $line);
+
+            $key   = array_shift($res);
+            $value = $res;
+
+            return [
+                "key"   => $key,
+                "value" => $value,
+            ];
+        }
+
+        protected static function parseLine(string $data): array
+        {
+            return preg_split('#[\r\n]+#', $data, -1, PREG_SPLIT_NO_EMPTY);
+        }
 
         public function isDebug(): bool
         {
@@ -3324,7 +3429,7 @@
                 $redis->del($key);
             }
         }
-        
+
         public function syncType(): void
         {
             $pageTab = $this->getPagesTable();
@@ -3338,8 +3443,7 @@
                 ],
             ];
 
-            $typePages = $pageTab->tableIns()->where($wherePageType)
-                ->field(implode(',', [
+            $typePages = $pageTab->tableIns()->where($wherePageType)->field(implode(',', [
                 $pageTab->getPkField(),
                 $pageTab->getParamsField(),
             ]))->select();
@@ -3350,7 +3454,7 @@
 
             array_map(function($type) use (&$typeArr) {
                 $typeArr[$type['id']] = $type;
-            },$types->toArray());
+            }, $types->toArray());
 
             foreach ($typePages as $k => $pageInfo)
             {
@@ -3368,12 +3472,11 @@
                         //如果不想等，就把type表的数据更新到 pages 表中的param属性
                         if ($originalTypeInfo['name'] != $paramTypeInfo['name'])
                         {
-                            $pageTab->tableIns()
-                                ->where($pageTab->getPkField(), '=', $pageInfo[$pageTab->getPkField()])
+                            $pageTab->tableIns()->where($pageTab->getPkField(), '=', $pageInfo[$pageTab->getPkField()])
                                 ->update([
                                     $pageTab->getParamsField() => json_encode([
                                         "type" => $originalTypeInfo,
-                                    ],256),
+                                    ], 256),
                                 ]);
 
                         }
