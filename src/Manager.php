@@ -63,8 +63,8 @@
         protected int    $mysqlPort                = 3306;
         protected int    $telegramMediaMaxFileSize = 1024 * 1024 * 200;
 
-        protected ?string $mediaOwner          = 'www';
-        protected         $prefetchCndCallback = null;
+        protected ?string $mediaOwner            = 'www';
+        protected         $beforePostFilesInsert = null;
 
         protected ?string $messageTableName = null;
         protected ?string $postTableName    = null;
@@ -350,9 +350,9 @@
             return $this;
         }
 
-        public function setPrefetchCndCallback(callable $prefetchCndCallback): static
+        public function setBeforePostFilesInsert(callable $beforePostFilesInsert): static
         {
-            $this->prefetchCndCallback = $prefetchCndCallback;
+            $this->beforePostFilesInsert = $beforePostFilesInsert;
 
             return $this;
         }
@@ -1015,9 +1015,9 @@
 
                         if (count($files))
                         {
-                            if (is_callable($this->prefetchCndCallback))
+                            if (is_callable($this->beforePostFilesInsert))
                             {
-                                call_user_func_array($this->prefetchCndCallback, [
+                                call_user_func_array($this->beforePostFilesInsert, [
                                     $files,
                                 ]);
                             }
