@@ -2825,7 +2825,7 @@
             };
 
             $catch = function(CallableMission $mission, \Exception $exception) {
-                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】");
+                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】【{$mission->fullCoverPath}】");
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
