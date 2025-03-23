@@ -2707,7 +2707,7 @@
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
+            $queue->setMaxTimes(5);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new GuzzleMissionProcessor());
 
@@ -2716,11 +2716,11 @@
 //                $response = $mission->getResult();
 //                $contents = $response->getBody()->getContents();
 
-                $this->telegraphQueueMissionManager->logInfo('cdnPrefetch success：' . $mission->url);
+                $this->telegraphQueueMissionManager->logInfo("cdnPrefetch success【{$mission->url}】");
             };
 
             $catch = function(HttpMission $mission, \Exception $exception) {
-                $this->telegraphQueueMissionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】");
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -2766,11 +2766,11 @@
                 ]);
 
                 $video = $ffmpeg->open($fileFullPath);
-                $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(3))->save($coverPath);
+                $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(0.2))->save($coverPath);
             });
 
             $this->telegraphQueueMissionManager->logInfo(implode([
-                'makeVideoCoverQueue，psth: ' . $fullCoverPath,
+                'makeVideoCoverQueue，cover path: ' . $fullCoverPath,
             ]));
 
             $this->makeVideoCoverQueue->addNewMission($mission);
@@ -2783,7 +2783,7 @@
             $queue->setContinuousRetry(true);
             $queue->setDelayMs($this->telegraphQueueDelayMs);
             $queue->setEnable(true);
-            $queue->setMaxTimes($this->telegraphQueueMaxTimes);
+            $queue->setMaxTimes(5);
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new CallableMissionProcessor());
 
@@ -2814,22 +2814,21 @@
 
                 if ($result == 1)
                 {
-                    $msg = 'makeVideoCover success：' . $mission->coverPath;
+                    $msg = "makeVideoCover success：【{$mission->fullCoverPath}】";
                 }
                 else
                 {
-                    $msg = 'makeVideoCover error：' . $mission->coverPath;
+                    $msg = "makeVideoCover error：【{$mission->fullCoverPath}】";
                 }
 
-                $this->telegraphQueueMissionManager->logInfo($msg);
+                $this->telegraphQueueMissionManager->logInfo("{$msg}");
             };
 
             $catch = function(CallableMission $mission, \Exception $exception) {
-                $this->telegraphQueueMissionManager->logError($exception->getMessage());
+                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】");
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
-
             $queue->listen();
         }
 
