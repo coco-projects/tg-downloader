@@ -45,12 +45,15 @@
 
     class Manager
     {
-        protected ?Container $container      = null;
-        protected bool       $debug          = false;
-        protected bool       $enableRedisLog = false;
-        protected bool       $enableEchoLog  = false;
-        protected array      $tables         = [];
+        protected ?Container $container       = null;
+        protected bool       $debug           = false;
+        protected bool       $enableRedisLog  = false;
+        protected bool       $enableEchoLog   = false;
+        protected array      $tables          = [];
+        protected array      $contentsFilters = [];
 
+        //如果开启，一个消息中所有媒体都下载完成才会写入file，关闭的话，下载一个写入一个
+        protected bool   $strictMode    = true;
         protected string $redisHost     = '127.0.0.1';
         protected string $redisPassword = '';
         protected int    $redisPort     = 6379;
@@ -75,6 +78,8 @@
 
         protected ?string $logNamespace;
         protected ?string $cacheNamespace;
+
+
         /*
          *
          * ------------------------------------------------------
@@ -353,6 +358,20 @@
         public function setBeforePostFilesInsert(callable $beforePostFilesInsert): static
         {
             $this->beforePostFilesInsert = $beforePostFilesInsert;
+
+            return $this;
+        }
+
+        public function setStrictMode(bool $strictMode): static
+        {
+            $this->strictMode = $strictMode;
+
+            return $this;
+        }
+
+        public function addContentsFilters(callable $contentsFilters): static
+        {
+            $this->contentsFilters[] = $contentsFilters;
 
             return $this;
         }
@@ -907,38 +926,48 @@
                         ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
-                    $group  = [];
-                    $result = [];
+                    $message_group = [];
+                    $result        = [];
 
                     //根据media_group_id 分组
                     foreach ($data as $k => $v)
                     {
-                        if (!isset($group[$v[$msgTable->getMediaGroupIdField()]]))
+                        if (!isset($message_group[$v[$msgTable->getMediaGroupIdField()]]))
                         {
-                            $group[$v[$msgTable->getMediaGroupIdField()]] = [];
+                            $message_group[$v[$msgTable->getMediaGroupIdField()]] = [];
                         }
-                        $group[$v[$msgTable->getMediaGroupIdField()]][] = $v;
+                        $message_group[$v[$msgTable->getMediaGroupIdField()]][] = $v;
                     }
 
-                    foreach ($group as $group_id => $item)
+                    foreach ($message_group as $group_id => $messages)
                     {
-                        //一共应该有几个媒体
-                        $totalMediaCount = $this->getMediaGroupCount($group_id);
-
-                        //当前查出了几个有媒体
-                        $currentHasMediaCount = 0;
-                        foreach ($item as $k => $v)
+                        //如果开启严格模式，必须等一个文章所有媒体下载完才能写入post表
+                        if ($this->strictMode)
                         {
-                            if ($v[$msgTable->getFileUniqueIdField()])
+                            //这个消息一共应该有几个媒体
+                            $totalMediaCount = $this->getMediaGroupCount($group_id);
+
+                            //当前已经写到下载完写入库几个有媒体
+                            $currentHasMediaCount = 0;
+                            foreach ($messages as $k => $message)
                             {
-                                $currentHasMediaCount++;
+                                if ($message[$msgTable->getFileUniqueIdField()])
+                                {
+                                    $currentHasMediaCount++;
+                                }
+                            }
+
+                            //如果相等说明一条消息中所有媒体已经下载完
+                            if ($totalMediaCount == $currentHasMediaCount)
+                            {
+                                $result[$group_id] = $messages;
                             }
                         }
-
-                        //如果相等说明一条消息中所有媒体已经下载完
-                        if ($totalMediaCount == $currentHasMediaCount)
+                        else
                         {
-                            $result[$group_id] = $item;
+                            //文件已经下载好写入了数据库，但是redis被清除，就关闭严格模式，将下载的文件写入post表
+                            //在没写入完时，不要更新页面，否则文章可能会少媒体文件
+                            $result[$group_id] = $messages;
                         }
                     }
 
@@ -979,10 +1008,18 @@
                             }
                         }
 
-                        $content = trim($content);
+                        foreach ($this->contentsFilters as $k => $filter)
+                        {
+                            $content = $filter($content);
+                        }
+
+                        //没有文件也没有文本，空消息
+                        if (!$content && !count($files))
+                        {
+                            break;
+                        }
 
                         $postId = $postTable->calcPk();
-
                         //构造文件数组，写入文件表
                         foreach ($item as $k => $messageInfo)
                         {
@@ -1004,26 +1041,18 @@
                             $ids[] = $messageInfo[$msgTable->getPkField()];
                         }
 
-                        //没有文件也没有文本，空消息
-                        if (!$content && !count($files))
-                        {
-                            break;
-                        }
-
-                        $content = preg_replace('#[\r\n]+#iu', "\r\n", $content);
                         $maker_->getScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
-
                         if (count($files))
                         {
+                            $fileTable->tableIns()->insertAll($files);
+                            $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
+
                             if (is_callable($this->beforePostFilesInsert))
                             {
                                 call_user_func_array($this->beforePostFilesInsert, [
                                     $files,
                                 ]);
                             }
-
-                            $fileTable->tableIns()->insertAll($files);
-                            $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
                         }
 
                         //向 post 插入一个记录
@@ -2676,7 +2705,7 @@
 
 
         /*-------------------------------------------------------------------*/
-        public function cdnPrefetchToQueue(string $path, callable $callback,$referer=''): void
+        public function cdnPrefetchToQueue(string $path, callable $callback, $referer = ''): void
         {
             $mission = new HttpMission();
 
@@ -2688,12 +2717,10 @@
             $url = call_user_func_array($callback, [$path]);
             $mission->setTimeout(30000);
             $mission->setUrl($url);
-//            $mission->setMethod('head');
             $mission->addClientOptions('verify', false);
             $mission->addClientOptions('debug', $this->debug);
-            $mission->addClientOptions('headers', [
-                'referer'     => $referer,
-            ]);
+            $mission->addClientOptions('headers', ['referer' => $referer]);
+
             $mission->url = $url;
 
             $this->telegraphQueueMissionManager->logInfo(implode([
@@ -2737,6 +2764,10 @@
             $videoFullPath = call_user_func_array($callback, [$videoPath]);
             if (!is_file($videoFullPath))
             {
+                $this->telegraphQueueMissionManager->logInfo(implode([
+                    'makeVideoCoverQueue，视频文件不存在，被忽略: ' . $videoFullPath,
+                ]));
+
                 return;
             }
 
@@ -2746,7 +2777,9 @@
             $saveCoverPath = strtr($videoPath, ["videos" => "photos"]);
             $saveCoverPath = preg_replace('/[^.]+$/im', 'jpg', $saveCoverPath);
 
-            is_dir(dirname($fullCoverPath)) or mkdir(dirname($fullCoverPath), 777, true);
+            is_dir(dirname($fullCoverPath)) or mkdir(dirname($fullCoverPath), 0777, true);
+            chmod(dirname($fullCoverPath), 0777);
+            chown(dirname($fullCoverPath), $this->mediaOwner);
 
             $mission                = new CallableMission();
             $mission->videoFullPath = $videoFullPath;
@@ -2769,11 +2802,11 @@
                 ]);
 
                 $video = $ffmpeg->open($fileFullPath);
-                $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(0.2))->save($coverPath);
+                $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(1))->save($coverPath);
             });
 
             $this->telegraphQueueMissionManager->logInfo(implode([
-                'makeVideoCoverQueue，cover path: ' . $fullCoverPath,
+                'makeVideoCoverQueue，视频路径: ' . $fullCoverPath,
             ]));
 
             $this->makeVideoCoverQueue->addNewMission($mission);
@@ -2801,13 +2834,15 @@
                 //怕文件还没写好
                 usleep(1000 * 50);
 
+                $fileSize = (is_file($mission->fullCoverPath) && is_readable($mission->fullCoverPath)) ? filesize($mission->fullCoverPath) : 0;
+
                 //封面图片信息写入数据库
                 $fileTable = $this->getFileTable();
                 $result    = $fileTable->tableIns()->insert([
                     $fileTable->getPkField()           => $fileTable->calcPk(),
                     $fileTable->getPostIdField()       => $mission->postId,
                     $fileTable->getPathField()         => $mission->saveCoverPath,
-                    $fileTable->getFileSizeField()     => filesize($mission->fullCoverPath),
+                    $fileTable->getFileSizeField()     => $fileSize,
                     $fileTable->getFileNameField()     => '--cover--',
                     $fileTable->getExtField()          => 'jpg',
                     $fileTable->getMimeTypeField()     => 'image/jpeg',
@@ -3271,6 +3306,7 @@
 
         public function initServer(): static
         {
+            $this->addContentsFilters(static::baseContentsFilter());
             $this->initMissionManager();
             $this->initRedis();
             $this->initMysql();
@@ -3553,5 +3589,18 @@
             $result = preg_replace('/[ \t]+/ium', ' ', $result);
 
             return $result;
+        }
+
+        public static function baseContentsFilter(): callable
+        {
+            return function($content) {
+                $content = trim($content);
+                $content = preg_replace('#[\r\n]+#iu', "\r\n", $content);
+                $lines   = preg_split('#[\r\n]+#iu', $content, -1, PREG_SPLIT_NO_EMPTY);
+                $lines   = array_map('trim', $lines);
+                $content = implode(PHP_EOL, $lines);
+
+                return $content;
+            };
         }
     }
