@@ -2676,7 +2676,7 @@
 
 
         /*-------------------------------------------------------------------*/
-        public function cdnPrefetchToQueue(string $path, callable $callback): void
+        public function cdnPrefetchToQueue(string $path, callable $callback,$referer=''): void
         {
             $mission = new HttpMission();
 
@@ -2691,6 +2691,9 @@
 //            $mission->setMethod('head');
             $mission->addClientOptions('verify', false);
             $mission->addClientOptions('debug', $this->debug);
+            $mission->addClientOptions('headers', [
+                'referer'     => $referer,
+            ]);
             $mission->url = $url;
 
             $this->telegraphQueueMissionManager->logInfo(implode([
