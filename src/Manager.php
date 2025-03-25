@@ -438,18 +438,18 @@
 
                     if ($this->isTelegramBotApiStarted())
                     {
-                        $this->telegraphQueueMissionManager->logInfo('API服务正常');
+                        $this->getDownloadMediaScanner()->logInfo('API服务正常');
                     }
                     else
                     {
-                        $this->telegraphQueueMissionManager->logInfo('【------- API服务熄火 -------】');
+                        $this->getDownloadMediaScanner()->logInfo('【------- API服务熄火 -------】');
 
                         return [];
                     }
 
                     while ($this->getRedisClient()->get($this->downloadLockKey))
                     {
-                        $this->telegraphQueueMissionManager->logInfo('锁定中，等待...');
+                        $this->getDownloadMediaScanner()->logInfo('锁定中，等待...');
                         usleep(1000 * 250);
                     }
 
@@ -489,12 +489,13 @@
                      */
                     $downloadingRemain = $this->getFileStatus0Count();
 
-                    $this->telegraphQueueMissionManager->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
+                    $this->getDownloadMediaScanner()
+                        ->logInfo('正在下载任务数：' . $downloading . '，剩余：' . $downloadingRemain);
 
                     //如果正在下载的任务大于等于最大限制
                     if ($downloading >= $this->telegramMediaMaxDownloading)
                     {
-                        $this->telegraphQueueMissionManager->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
+                        $this->getDownloadMediaScanner()->logInfo('正在下载任务数大于等于设定最大值，暂停下载');
 
                         return [];
                     }
@@ -534,6 +535,8 @@
                     {
                         $ids[] = $v[$msgTable->getPkField()];
                     }
+
+                    $this->getDownloadMediaScanner()->logInfo(count($ids) . '个文件写入下载');
 
                     //更新下载状态和开始下载时间
                     $timeNow = time();
@@ -637,70 +640,6 @@
             $this->getDownloadMediaScanner()->setMaker($this->getDownloadMediaMaker())->listen();
         }
 
-
-        /*
-         * ---------------------------------------------------------
-         * */
-
-        //getDownloadingRemainCount
-        public function getFileStatus0Count(): int
-        {
-            $msgTable = $this->getMessageTable();
-
-            if (!$msgTable->isTableCerated())
-            {
-                return 0;
-            }
-
-            return $msgTable->tableIns()
-                ->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
-                ->where($this->whereFileStatus0WaitingDownload)->count();
-        }
-
-
-        //getDownloadingCount
-        public function getFileStatus1Count(): int
-        {
-            $msgTable = $this->getMessageTable();
-
-            if (!$msgTable->isTableCerated())
-            {
-                return 0;
-            }
-
-            return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
-        }
-
-
-        public function getFileStatus2Count(): int
-        {
-            $msgTable = $this->getMessageTable();
-
-            if (!$msgTable->isTableCerated())
-            {
-                return 0;
-            }
-
-            return $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->count();
-        }
-
-
-        public function getFileStatus3Count(): int
-        {
-            $msgTable = $this->getMessageTable();
-
-            if (!$msgTable->isTableCerated())
-            {
-                return 0;
-            }
-
-            return $msgTable->tableIns()->where($this->whereFileStatus3InPosted)->count();
-        }
-
-        /*
-         * ---------------------------------------------------------
-         * */
-
         public function stopDownloadMedia(): void
         {
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
@@ -729,6 +668,8 @@
 
                 $maker->addProcessor(new CallbackProcessor(function(Finder $finder, FilesystemMaker $maker_) {
                     $msgTable = $this->getMessageTable();
+
+                    $this->getToFileMoveScanner()->logInfo('文件数量：' . count($finder));
 
                     foreach ($finder as $k => $pathName)
                     {
@@ -922,9 +863,6 @@
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
                 ->stop($this->scannerFileMove);
         }
-        /*
-         * ---------------------------------------------------------
-         * */
 
         /**
          * 扫描状态为 2 的记录，根据media_group_id分组，media的个数等于redis里保存的个数说明文件都处理完了，
@@ -974,6 +912,9 @@
                         $message_group[$v[$msgTable->getMediaGroupIdField()]][] = $v;
                     }
 
+                    $this->getMigrationScanner()
+                        ->logInfo(count($message_group) . '个待处理信息，严格模式' . ($this->strictMode ? '【开启】' : '【关闭】'));
+
                     foreach ($message_group as $group_id => $messages)
                     {
                         //如果开启严格模式，必须等一个文章所有媒体下载完才能写入post表
@@ -1005,6 +946,8 @@
                             $result[$group_id] = $messages;
                         }
                     }
+
+                    $this->getMigrationScanner()->logInfo(count($result) . '个信息分组');
 
                     return $result;
                 });
@@ -1043,16 +986,14 @@
                             }
                         }
 
+                        $this->getMigrationScanner()->logInfo('原始信息:'.$content);
+
                         foreach ($this->contentsFilters as $k => $filter)
                         {
                             $content = $filter($content);
                         }
 
-                        //没有文件也没有文本，空消息
-                        if (!$content && !count($files))
-                        {
-                            break;
-                        }
+                        $this->getMigrationScanner()->logInfo('过滤后信息:'.$content);
 
                         $postId = $postTable->calcPk();
                         //构造文件数组，写入文件表
@@ -1076,11 +1017,22 @@
                             $ids[] = $messageInfo[$msgTable->getPkField()];
                         }
 
-                        $maker_->getScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
+                        //没有文件也没有文本，空消息
+                        if (!$content && !count($files))
+                        {
+                            $this->getMigrationScanner()->logInfo('没有文件也没有文本，空消息：'.$mediaGroupId);
+
+                            break;
+                        }
+
+                        $this->getMigrationScanner()->logInfo(count($files) . '个文件');
+                        $this->getMigrationScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
+
                         if (count($files))
                         {
                             $fileTable->tableIns()->insertAll($files);
-                            $maker_->getScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
+
+                            $this->getMigrationScanner()->logInfo('写入 file 表:' . count($files) . '个文件');
 
                             if (is_callable($this->beforePostFilesInsert))
                             {
@@ -1162,6 +1114,64 @@
         {
             LoopTool::getIns(host: $this->redisHost, password: $this->redisPassword, port: $this->redisPort, db: $this->redisDb)
                 ->stop($this->scannerMigration);
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * */
+
+        //getDownloadingRemainCount
+        public function getFileStatus0Count(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
+
+            return $msgTable->tableIns()->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
+                ->where($this->whereFileStatus0WaitingDownload)->count();
+        }
+
+
+        //getDownloadingCount
+        public function getFileStatus1Count(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
+
+            return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
+        }
+
+
+        public function getFileStatus2Count(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
+
+            return $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->count();
+        }
+
+
+        public function getFileStatus3Count(): int
+        {
+            $msgTable = $this->getMessageTable();
+
+            if (!$msgTable->isTableCerated())
+            {
+                return 0;
+            }
+
+            return $msgTable->tableIns()->where($this->whereFileStatus3InPosted)->count();
         }
 
         /*
@@ -3475,7 +3485,7 @@
             return $postCount - $detailPageCount;
         }
 
-        public function deletePost(string$keyword, bool$isFullMatch=false)
+        public function deletePost(string $keyword, bool $isFullMatch = false)
         {
             $msgTable  = $this->getMessageTable();
             $postTable = $this->getPostTable();
@@ -3508,7 +3518,7 @@
                 [
                     $msgTable->getMediaGroupIdField(),
                     'in',
-                    $mediaGroupIds
+                    $mediaGroupIds,
                 ],
             ])->delete();
 
@@ -3516,7 +3526,7 @@
                 [
                     $postTable->getMediaGroupIdField(),
                     'in',
-                    $mediaGroupIds
+                    $mediaGroupIds,
                 ],
             ])->delete();
 
@@ -3524,7 +3534,7 @@
                 [
                     $fileTable->getMediaGroupIdField(),
                     'in',
-                    $mediaGroupIds
+                    $mediaGroupIds,
                 ],
             ])->delete();
         }
