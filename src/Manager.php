@@ -681,7 +681,7 @@
                 return 0;
             }
 
-            return $msgTable->tableIns()->where($this->whereFileStatus2Downloading)->count();
+            return $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->count();
         }
 
 
@@ -694,7 +694,7 @@
                 return 0;
             }
 
-            return $msgTable->tableIns()->where($this->whereFileStatus3Downloading)->count();
+            return $msgTable->tableIns()->where($this->whereFileStatus3InPosted)->count();
         }
 
         /*
