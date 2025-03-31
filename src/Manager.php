@@ -3713,18 +3713,25 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             $files = $fileTable->tableIns()->where($where)->select();
 
+            $this->telegraphQueueMissionManager->logInfo('待删除文件: ' . count($files));
+
             $ids = [];
             foreach ($files as $k => $file)
             {
-                $ids[] = $id = $file[$fileTable->getPkField()];
-
                 $path = call_user_func_array($callback, [$file[$fileTable->getPathField()]]);
 
-                if (is_file($path))
+                if (is_file($path) && is_writeable($path) )
                 {
-                    $this->telegraphQueueMissionManager->logInfo('删除文件: ' . $id . '----' . $path);
-
-                    $res = unlink($path);
+                    $res = @!!unlink($path);
+                    if ($res)
+                    {
+                        $ids[] = $id = $file[$fileTable->getPkField()];
+                        $this->telegraphQueueMissionManager->logInfo('删除文件成功: ' . $id . '----' . $path);
+                    }
+                    else
+                    {
+                        $this->telegraphQueueMissionManager->logInfo('删除文件失败: ' . $id . '----' . $path);
+                    }
                 }
                 else
                 {
@@ -3732,7 +3739,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 }
             }
 
-            $this->telegraphQueueMissionManager->logInfo('删除文件数量: ' . count($ids));
+            $this->telegraphQueueMissionManager->logInfo('成功删除文件数量: ' . count($ids));
 
             if (count($ids))
             {
@@ -3760,8 +3767,8 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             foreach ($posts as $k => $post)
             {
-                $content = $post[$postTable->getContentsField()];
                 $gropId  = $post[$postTable->getMediaGroupIdField()];
+                $content = $post[$postTable->getContentsField()];
 
                 $fileCount = $fileTable->tableIns()->where([
                     [
