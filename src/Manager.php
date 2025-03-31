@@ -3696,7 +3696,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
         }
 
         //删除file表中，文件大小超过指定值的视频文件
-        public function deleteOverSizeFile(int $sizeInByte, callable $callback): int
+        public function deleteOverSizeFile(int $sizeInByte, callable $callback): void
         {
             $msgTable  = $this->getMessageTable();
             $fileTable = $this->getFileTable();
@@ -3730,13 +3730,18 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 }
             }
 
-            $fileTable->tableIns()->where([
-                [
-                    $fileTable->getPkField(),
-                    'in',
-                    $ids,
-                ],
-            ])->delete();
+            $this->telegraphQueueMissionManager->logInfo('删除文件数量: ' . count($ids));
+
+            if (count($ids))
+            {
+                $fileTable->tableIns()->where([
+                    [
+                        $fileTable->getPkField(),
+                        'in',
+                        $ids,
+                    ],
+                ])->delete();
+            }
         }
 
         //删除post表中，一个媒体都没有的文章
