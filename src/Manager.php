@@ -42,6 +42,7 @@
     use Coco\tgDownloader\tables\Post;
     use Coco\tgDownloader\missions\TelegraphMission;
     use Coco\telegraph\dom\E;
+    use function Amp\call;
 
     class Manager
     {
@@ -86,9 +87,9 @@
          *
          */
 
-        protected ?string $telegramTempJsonPath               = null;
-        protected ?string $telegramMediaStorePath             = null;
-        protected ?string $telegramBotApiPath                 = null;
+        protected ?string $telegramTempJsonPath   = null;
+        public ?string    $telegramMediaStorePath = null;
+        protected ?string $telegramBotApiPath     = null;
         protected int     $telegramMediaMaxDownloading        = 10;
         protected int     $telegramMediaMaxDownloadTimeout    = 360000;
         protected int     $telegramMediaDownloadDelayInSecond = 1;
@@ -123,6 +124,7 @@
         const UPDATE_INDEX_PAGE_QUEUE      = 'UPDATE_INDEX_PAGE';
         const CDN_PREFETCH_QUEUE           = 'CDN_PREFETCH';
         const MAKE_VIDEO_COVER_QUEUE       = 'MAKE_VIDEO_COVER';
+        const CONVERT_M3U8_QUEUE           = 'CONVERT_M3U8';
 
         public Queue $createAccountQueue;
         public Queue $createIndexPageQueue;
@@ -134,6 +136,7 @@
         public Queue $updateIndexPageQueue;
         public Queue $cdnPrefetchQueue;
         public Queue $makeVideoCoverQueue;
+        public Queue $convertM3u8Queue;
 
         protected MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
@@ -767,8 +770,8 @@
                         {
                             if (rename($source, $target))
                             {
-                                chmod($target, 0777);
-                                chown($target, $this->mediaOwner);
+                                @chmod($target, 0777);
+                                @chown($target, $this->mediaOwner);
 
                                 //移动成功
                                 $this->getToFileMoveScanner()
@@ -986,14 +989,14 @@
                             }
                         }
 
-                        $this->getMigrationScanner()->logInfo('原始信息:'.$content);
+                        $this->getMigrationScanner()->logInfo('原始信息:' . $content);
 
                         foreach ($this->contentsFilters as $k => $filter)
                         {
                             $content = $filter($content);
                         }
 
-                        $this->getMigrationScanner()->logInfo('过滤后信息:'.$content);
+                        $this->getMigrationScanner()->logInfo('过滤后信息:' . $content);
 
                         $postId = $postTable->calcPk();
                         //构造文件数组，写入文件表
@@ -1016,17 +1019,16 @@
 
                             $ids[] = $messageInfo[$msgTable->getPkField()];
                         }
+                        $this->getMigrationScanner()->logInfo(count($files) . '个文件');
+                        $this->getMigrationScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
 
-                        //没有文件也没有文本，空消息
-                        if (!$content && !count($files))
+                        //消息没有文件，不写入
+                        if (!count($files))
                         {
-                            $this->getMigrationScanner()->logInfo('没有文件也没有文本，空消息：'.$mediaGroupId);
+                            $this->getMigrationScanner()->logInfo('没有文件，空消息：' . $mediaGroupId);
 
                             break;
                         }
-
-                        $this->getMigrationScanner()->logInfo(count($files) . '个文件');
-                        $this->getMigrationScanner()->logInfo('mediaGroupId:' . "$mediaGroupId: " . $content);
 
                         if (count($files))
                         {
@@ -2750,8 +2752,11 @@
 
 
         /*-------------------------------------------------------------------*/
-        public function cdnPrefetchToQueue(string $path, callable $callback, $referer = ''): void
+        public function cdnPrefetchToQueue(array $videoFileInfo, callable $callback, $referer = ''): void
         {
+            $fileTab = $this->getFileTable();
+            $path    = $videoFileInfo[$fileTab->getPathField()];
+
             $mission = new HttpMission();
 
             if (!is_null($this->telegraphProxy))
@@ -2804,8 +2809,15 @@
         }
 
         /*-------------------------------------------------------------------*/
-        public function makeVideoCoverToQueue(string $postId, string $mediaGroupId, string $videoPath, callable $callback): void
+        public function makeVideoCoverToQueue(array $videoFileInfo, callable $callback): void
         {
+            $fileTab = $this->getFileTable();
+
+            $fileId       = $videoFileInfo[$fileTab->getPkField()];
+            $postId       = $videoFileInfo[$fileTab->getPostIdField()];
+            $mediaGroupId = $videoFileInfo[$fileTab->getMediaGroupIdField()];
+            $videoPath    = $videoFileInfo[$fileTab->getPathField()];
+
             $videoFullPath = call_user_func_array($callback, [$videoPath]);
             if (!is_file($videoFullPath))
             {
@@ -2823,8 +2835,8 @@
             $saveCoverPath = preg_replace('/[^.]+$/im', 'jpg', $saveCoverPath);
 
             is_dir(dirname($fullCoverPath)) or mkdir(dirname($fullCoverPath), 0777, true);
-            chmod(dirname($fullCoverPath), 0777);
-            chown(dirname($fullCoverPath), $this->mediaOwner);
+            @chmod(dirname($fullCoverPath), 0777);
+            @chown(dirname($fullCoverPath), $this->mediaOwner);
 
             $mission                = new CallableMission();
             $mission->videoFullPath = $videoFullPath;
@@ -2851,7 +2863,7 @@
             });
 
             $this->telegraphQueueMissionManager->logInfo(implode([
-                'makeVideoCoverQueue，视频路径: ' . $fullCoverPath,
+                'makeVideoCoverQueue，封面路径: ' . $fullCoverPath,
             ]));
 
             $this->makeVideoCoverQueue->addNewMission($mission);
@@ -2877,7 +2889,7 @@
 //                $mission->mediaGroupId  = $mediaGroupId;
 
                 //怕文件还没写好
-                usleep(1000 * 50);
+//                usleep(1000 * 50);
 
                 $fileSize = (is_file($mission->fullCoverPath) && is_readable($mission->fullCoverPath)) ? filesize($mission->fullCoverPath) : 0;
 
@@ -2908,7 +2920,150 @@
             };
 
             $catch = function(CallableMission $mission, \Exception $exception) {
-                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】【{$mission->fullCoverPath}】");
+                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】【{$mission->videoFullPath}】");
+            };
+
+            $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
+            $queue->listen();
+        }
+
+        /*-------------------------------------------------------------------*/
+
+        /*-------------------------------------------------------------------*/
+        public function convertM3u8ToQueue(array $videoFileInfo, callable $callback, $sectionSeconds = 10, $threads = 12, $streamFormat = 'x264'): void
+        {
+            $fileTab = $this->getFileTable();
+
+            $fileId       = $videoFileInfo[$fileTab->getPkField()];
+            $postId       = $videoFileInfo[$fileTab->getPostIdField()];
+            $mediaGroupId = $videoFileInfo[$fileTab->getMediaGroupIdField()];
+            $videoPath    = $videoFileInfo[$fileTab->getPathField()];
+
+            $videoFullPath = call_user_func_array($callback, [$videoPath]);
+            if (!is_file($videoFullPath))
+            {
+                $this->telegraphQueueMissionManager->logInfo(implode([
+                    'convertM3u8Queue，视频文件不存在，被忽略: ' . $videoFullPath,
+                ]));
+
+                return;
+            }
+
+            // key/393644444504750.txt
+            $keyUri = 'key/' . hrtime(true) . '.txt';
+
+            // /var/www/6025/new/coco-tgDownloader/data/media/2025-01/04/videos/D/1/hls.m3u8
+            $tsFullPath = preg_replace('/\.[^.]+$/im', '/hls.m3u8', $videoFullPath);
+
+            // 2025-01/04/videos/D/1/hls.m3u8
+            $tsPath = preg_replace('/\.[^.]+$/im', '/hls.m3u8', $videoPath);
+
+            // /var/www/6025/new/coco-tgDownloader/data/media/2025-01/04/videos/D/1/key/393644444504750.txt
+            $keyFullPath = preg_replace('/\.[^.]+$/im', '/' . $keyUri, $videoFullPath);
+
+            is_dir(dirname($keyFullPath)) or mkdir(dirname($keyFullPath), 0777, true);
+            @chmod(dirname($keyFullPath), 0777);
+            @chown(dirname($keyFullPath), $this->mediaOwner);
+
+            $mission                = new CallableMission();
+            $mission->videoFullPath = $videoFullPath;
+            $mission->videoPath     = $videoPath;
+            $mission->keyUri        = $keyUri;
+            $mission->keyFullPath   = $keyFullPath;
+            $mission->tsFullPath    = $tsFullPath;
+            $mission->tsPath        = $tsPath;
+            $mission->postId        = $postId;
+            $mission->fileId        = $fileId;
+            $mission->mediaGroupId  = $mediaGroupId;
+
+            $mission->setParameters([
+                $videoFullPath,
+                $tsFullPath,
+                $keyFullPath,
+                $keyUri,
+            ]);
+
+            $mission->setCallback(function($videoFullPath, $tsFullPath, $keyFullPath, $keyUri) use ($sectionSeconds, $threads, $streamFormat) {
+                $ffmpeg = \Streaming\FFMpeg::create([
+                    'ffmpeg.binaries'  => dirname(__DIR__) . '/tg-bot-server/bin/ffmpeg',
+                    'ffprobe.binaries' => dirname(__DIR__) . '/tg-bot-server/bin/ffprobe',
+                    'timeout'          => 360000,
+                    'ffmpeg.threads'   => $threads,
+                ]);
+
+                $video = $ffmpeg->open($videoFullPath);
+
+                $types = [
+//                    $r_144p = (new \Streaming\Representation())->setKiloBitrate(95)->setResize(256, 144),
+//                    $r_240p = (new \Streaming\Representation())->setKiloBitrate(150)->setResize(426, 240),
+//                    $r_360p = (new \Streaming\Representation())->setKiloBitrate(276)->setResize(640, 360),
+//                    $r_480p = (new \Streaming\Representation())->setKiloBitrate(750)->setResize(854, 480),
+//                    $r_720p = (new \Streaming\Representation())->setKiloBitrate(2048)->setResize(1280, 720),
+$r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(1920, 1080),
+//                    $r_2k = (new \Streaming\Representation())->setKiloBitrate(6144)->setResize(2560, 1440),
+//                    $r_4k = (new \Streaming\Representation())->setKiloBitrate(17408)->setResize(3840, 2160),
+                ];
+
+                if ($streamFormat == 'x264')
+                {
+                    $video->x264();
+                }
+                else
+                {
+                    $video->hevc();
+                }
+
+                $video->hls()->encryption($keyFullPath, $keyUri, 5)->setHlsTime((string)$sectionSeconds)
+                    ->addRepresentations($types)->save($tsFullPath);
+            });
+
+            $this->telegraphQueueMissionManager->logInfo(implode([
+                'convertM3u8Queue，m3u8 切片路径: ' . $tsFullPath,
+            ]));
+
+            $this->convertM3u8Queue->addNewMission($mission);
+        }
+
+        public function listenConvertM3u8(): void
+        {
+            $queue = $this->convertM3u8Queue;
+
+            $queue->setContinuousRetry(true);
+            $queue->setDelayMs($this->telegraphQueueDelayMs);
+            $queue->setEnable(true);
+            $queue->setMaxTimes(5);
+            $queue->setIsRetryOnError(true);
+            $queue->setMissionProcessor(new CallableMissionProcessor());
+
+            $success = function(CallableMission $mission) {
+
+                /*
+            $mission->videoFullPath = $videoFullPath;
+            $mission->videoPath     = $videoPath;
+            $mission->keyUri        = $keyUri;
+            $mission->keyFullPath   = $keyFullPath;
+            $mission->tsFullPath    = $tsFullPath;
+            $mission->tsPath        = $tsPath;
+            $mission->postId        = $postId;
+            $mission->fileId        = $fileId;
+            $mission->mediaGroupId  = $mediaGroupId;
+
+                */
+
+                $fileTable = $this->getFileTable();
+                $fileTable->tableIns()->where($fileTable->getPkField(), '=', $mission->fileId)->update([
+                    $fileTable->getPathField()     => $mission->tsPath,
+                    $fileTable->getMimeTypeField() => 'application/x-mpegURL',
+                    $fileTable->getExtField()      => 'm3u8',
+                ]);
+
+                $msg = "convertM3u8 success：【{$mission->tsFullPath}】";
+                $this->telegraphQueueMissionManager->logInfo("{$msg}");
+
+            };
+
+            $catch = function(CallableMission $mission, \Exception $exception) {
+                $this->telegraphQueueMissionManager->logError("error【{$exception->getMessage()}】【{$mission->videoFullPath}】");
             };
 
             $queue->addResultProcessor(new CustomResultProcessor($success, $catch));
@@ -3255,6 +3410,7 @@
             $this->updateIndexPageQueue     = $this->telegraphQueueMissionManager->initQueue(static::UPDATE_INDEX_PAGE_QUEUE);
             $this->cdnPrefetchQueue         = $this->telegraphQueueMissionManager->initQueue(static::CDN_PREFETCH_QUEUE);
             $this->makeVideoCoverQueue      = $this->telegraphQueueMissionManager->initQueue(static::MAKE_VIDEO_COVER_QUEUE);
+            $this->convertM3u8Queue         = $this->telegraphQueueMissionManager->initQueue(static::CONVERT_M3U8_QUEUE);
 
             return $this;
         }
@@ -3306,7 +3462,6 @@
 
             return in_array($this->makeDetailPageId($postPkId), $detailIdentifications);
         }
-
 
         /*
         *
@@ -3485,7 +3640,8 @@
             return $postCount - $detailPageCount;
         }
 
-        public function deletePost(string $keyword, bool $isFullMatch = false)
+        //根据关键词，删除post表中的文章
+        public function deletePostByKeyword(string $keyword, bool $isFullMatch = false): void
         {
             $msgTable  = $this->getMessageTable();
             $postTable = $this->getPostTable();
@@ -3539,6 +3695,125 @@
             ])->delete();
         }
 
+        //删除file表中，文件大小超过指定值的视频文件
+        public function deleteOverSizeFile(int $sizeInByte, callable $callback): int
+        {
+            $msgTable  = $this->getMessageTable();
+            $fileTable = $this->getFileTable();
+
+            $where = [
+                [
+                    $fileTable->getFileSizeField(),
+                    '>',
+                    $sizeInByte,
+                ],
+            ];
+
+            $files = $fileTable->tableIns()->where($where)->select();
+
+            $ids = [];
+            foreach ($files as $k => $file)
+            {
+                $ids[] = $id = $file[$fileTable->getPkField()];
+
+                $path = call_user_func_array($callback, [$file[$fileTable->getPathField()]]);
+
+                if (is_file($path))
+                {
+                    $this->telegraphQueueMissionManager->logInfo('删除文件: ' . $id . '----' . $path);
+
+                    $res = unlink($path);
+                }
+                else
+                {
+                    $this->telegraphQueueMissionManager->logInfo('文件不存在: ' . $id . '----' . $path);
+                }
+            }
+
+            $fileTable->tableIns()->where([
+                [
+                    $fileTable->getPkField(),
+                    'in',
+                    $ids,
+                ],
+            ])->delete();
+        }
+
+        //删除post表中，一个媒体都没有的文章
+        public function deleteNoneMediaPost(): void
+        {
+            $postTable = $this->getPostTable();
+            $fileTable = $this->getFileTable();
+            $msgTable  = $this->getMessageTable();
+
+            $posts = $postTable->tableIns()->field(implode(',', [
+                $postTable->getPkField(),
+                $postTable->getMediaGroupIdField(),
+            ]))->select();
+
+            foreach ($posts as $k => $post)
+            {
+                $id     = $post[$postTable->getPkField()];
+                $gropId = $post[$postTable->getMediaGroupIdField()];
+
+                $fileCount = $fileTable->tableIns()->where([
+                    [
+                        $fileTable->getPostIdField(),
+                        '=',
+                        $id,
+                    ],
+                ])->count();
+
+                $this->telegraphQueueMissionManager->logInfo('文件个数: ' . $id . '----' . $fileCount);
+
+                if (!$fileCount)
+                {
+                    $this->telegraphQueueMissionManager->logInfo('删除文章: ' . $id);
+                    $postTable->tableIns()->where([
+                        [
+                            $postTable->getPkField(),
+                            '=',
+                            $id,
+                        ],
+                    ])->delete();
+
+                    $msgTable->tableIns()->where([
+                        [
+                            $msgTable->getMediaGroupIdField(),
+                            'in',
+                            $gropId,
+                        ],
+                    ])->delete();
+                }
+            }
+        }
+
+        //修改post表中的contents字段
+        public function updatePostContents(callable $callback): void
+        {
+            $postTable = $this->getPostTable();
+
+            $posts = $postTable->tableIns()->cursor();
+
+            foreach ($posts as $k => $post)
+            {
+                $where = [
+                    [
+                        $postTable->getPkField(),
+                        '=',
+                        $post[$postTable->getPkField()],
+                    ],
+                ];
+
+                $postTable->tableIns()->where($where)->update([
+                    $postTable->getContentsField() => call_user_func_array($callback, [
+                        $post,
+                        $postTable,
+                    ]),
+                ]);
+            }
+        }
+
         public function deleteRedisLog(): void
         {
             $redis = $this->getRedisClient();
@@ -3567,6 +3842,7 @@
             }
         }
 
+        //把type表中的type同步到post表中分类为 type的 pararm字段中
         public function syncType(): void
         {
             $pageTab = $this->getPagesTable();
