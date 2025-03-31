@@ -3752,33 +3752,33 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             $msgTable  = $this->getMessageTable();
 
             $posts = $postTable->tableIns()->field(implode(',', [
-                $postTable->getPkField(),
                 $postTable->getMediaGroupIdField(),
+                $postTable->getContentsField(),
             ]))->select();
 
             foreach ($posts as $k => $post)
             {
-                $id     = $post[$postTable->getPkField()];
-                $gropId = $post[$postTable->getMediaGroupIdField()];
+                $content = $post[$postTable->getContentsField()];
+                $gropId  = $post[$postTable->getMediaGroupIdField()];
 
                 $fileCount = $fileTable->tableIns()->where([
                     [
-                        $fileTable->getPostIdField(),
+                        $fileTable->getMediaGroupIdField(),
                         '=',
-                        $id,
+                        $gropId,
                     ],
                 ])->count();
 
-                $this->telegraphQueueMissionManager->logInfo('文件个数: ' . $id . '----' . $fileCount);
+                $this->telegraphQueueMissionManager->logInfo('文件个数: ' . $gropId . '[' . $fileCount. ']--' . static::inlineText($content));
 
                 if (!$fileCount)
                 {
-                    $this->telegraphQueueMissionManager->logInfo('删除文章: ' . $id);
+                    $this->telegraphQueueMissionManager->logInfo('删除文章: ' . $gropId);
                     $postTable->tableIns()->where([
                         [
-                            $postTable->getPkField(),
-                            '=',
-                            $id,
+                            $postTable->getMediaGroupIdField(),
+                            'in',
+                            $gropId,
                         ],
                     ])->delete();
 
