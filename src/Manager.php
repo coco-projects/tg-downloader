@@ -138,7 +138,7 @@
         public Queue $makeVideoCoverQueue;
         public Queue $convertM3u8Queue;
 
-        protected MissionManager $telegraphQueueMissionManager;
+        public MissionManager $telegraphQueueMissionManager;
         protected ?StyleAbstract $telegraphPageStyle      = null;
         protected int            $telegraphPageRow        = 50;
         protected int            $telegraphTimeout        = 30;
@@ -633,7 +633,7 @@
             return $this;
         }
 
-        protected function getDownloadMediaScanner(): LoopScanner
+        public function getDownloadMediaScanner(): LoopScanner
         {
             return $this->container->get('downloadMediaScanner');
         }
@@ -851,7 +851,7 @@
             return $this;
         }
 
-        protected function getToFileMoveScanner(): LoopScanner
+        public function getToFileMoveScanner(): LoopScanner
         {
             return $this->container->get('toFileMove');
         }
@@ -1102,7 +1102,7 @@
             return $this;
         }
 
-        protected function getMigrationScanner(): LoopScanner
+        public function getMigrationScanner(): LoopScanner
         {
             return $this->container->get('migration');
         }
@@ -1136,7 +1136,6 @@
                 ->where($this->whereFileStatus0WaitingDownload)->count();
         }
 
-
         //getDownloadingCount
         public function getFileStatus1Count(): int
         {
@@ -1150,7 +1149,6 @@
             return $msgTable->tableIns()->where($this->whereFileStatus1Downloading)->count();
         }
 
-
         public function getFileStatus2Count(): int
         {
             $msgTable = $this->getMessageTable();
@@ -1162,7 +1160,6 @@
 
             return $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->count();
         }
-
 
         public function getFileStatus3Count(): int
         {
@@ -3006,15 +3003,17 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
                 if ($streamFormat == 'x264')
                 {
-                    $video->x264();
+                    $v = $video->hls()->x264();
                 }
                 else
                 {
-                    $video->hevc();
+                    $v = $video->hls()->hevc();
                 }
 
-                $video->hls()->encryption($keyFullPath, $keyUri, 5)->setHlsTime((string)$sectionSeconds)
-                    ->addRepresentations($types)->save($tsFullPath);
+                $v->encryption($keyFullPath, $keyUri, 5)
+                    ->setHlsTime((string)$sectionSeconds)
+                    ->addRepresentations($types)
+                    ->save($tsFullPath);
             });
 
             $this->telegraphQueueMissionManager->logInfo(implode([
@@ -3038,15 +3037,15 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             $success = function(CallableMission $mission) {
 
                 /*
-            $mission->videoFullPath = $videoFullPath;
-            $mission->videoPath     = $videoPath;
-            $mission->keyUri        = $keyUri;
-            $mission->keyFullPath   = $keyFullPath;
-            $mission->tsFullPath    = $tsFullPath;
-            $mission->tsPath        = $tsPath;
-            $mission->postId        = $postId;
-            $mission->fileId        = $fileId;
-            $mission->mediaGroupId  = $mediaGroupId;
+                $mission->videoFullPath = $videoFullPath;
+                $mission->videoPath     = $videoPath;
+                $mission->keyUri        = $keyUri;
+                $mission->keyFullPath   = $keyFullPath;
+                $mission->tsFullPath    = $tsFullPath;
+                $mission->tsPath        = $tsPath;
+                $mission->postId        = $postId;
+                $mission->fileId        = $fileId;
+                $mission->mediaGroupId  = $mediaGroupId;
 
                 */
 
@@ -3059,6 +3058,9 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
                 $msg = "convertM3u8 success：【{$mission->tsFullPath}】";
                 $this->telegraphQueueMissionManager->logInfo("{$msg}");
+
+                //删除原 mp4
+                @unlink($mission->videoFullPath);
 
             };
 
