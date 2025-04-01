@@ -1122,7 +1122,6 @@
          * ---------------------------------------------------------
          * */
 
-        //getDownloadingRemainCount
         public function getFileStatus0Count(): int
         {
             $msgTable = $this->getMessageTable();
@@ -1132,11 +1131,11 @@
                 return 0;
             }
 
-            return $msgTable->tableIns()->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
+            return $msgTable->tableIns()
+                ->where($msgTable->getFileSizeField(), '<', $this->telegramMediaMaxFileSize)
                 ->where($this->whereFileStatus0WaitingDownload)->count();
         }
 
-        //getDownloadingCount
         public function getFileStatus1Count(): int
         {
             $msgTable = $this->getMessageTable();
@@ -3672,6 +3671,15 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             $mediaGroupIds = $postTable->tableIns()->where($where)->column($postTable->getMediaGroupIdField());
 
+            $this->deletePostByMediaGroupId($mediaGroupIds);
+        }
+        
+        public function deletePostByMediaGroupId($mediaGroupIds)
+        {
+            $msgTable  = $this->getMessageTable();
+            $postTable = $this->getPostTable();
+            $fileTable = $this->getFileTable();
+
             $msgTable->tableIns()->where([
                 [
                     $msgTable->getMediaGroupIdField(),
@@ -3706,7 +3714,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             $where = [
                 [
                     $fileTable->getFileSizeField(),
-                    '>',
+                    '>=',
                     $sizeInByte,
                 ],
             ];
@@ -3783,21 +3791,8 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 if (!$fileCount)
                 {
                     $this->telegraphQueueMissionManager->logInfo('删除文章: ' . $gropId);
-                    $postTable->tableIns()->where([
-                        [
-                            $postTable->getMediaGroupIdField(),
-                            'in',
-                            $gropId,
-                        ],
-                    ])->delete();
 
-                    $msgTable->tableIns()->where([
-                        [
-                            $msgTable->getMediaGroupIdField(),
-                            'in',
-                            $gropId,
-                        ],
-                    ])->delete();
+                    $this->deletePostByMediaGroupId($gropId);
                 }
             }
         }
