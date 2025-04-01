@@ -3673,7 +3673,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             $this->deletePostByMediaGroupId($mediaGroupIds);
         }
-        
+
         public function deletePostByMediaGroupId($mediaGroupIds)
         {
             $msgTable  = $this->getMessageTable();
@@ -3711,24 +3711,19 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             $msgTable  = $this->getMessageTable();
             $fileTable = $this->getFileTable();
 
-            $where = [
-                [
-                    $fileTable->getFileSizeField(),
-                    '>=',
-                    $sizeInByte,
-                ],
-            ];
-
-            $files = $fileTable->tableIns()->where($where)->select();
+            //查询文件表大于指定大小的记录
+            $files = $fileTable->tableIns()->where($fileTable->getFileSizeField(), '>=', $sizeInByte)->select();
 
             $this->telegraphQueueMissionManager->logInfo('待删除文件: ' . count($files));
 
+
+            //遍历文件，构造文件路径，删除文件
             $ids = [];
             foreach ($files as $k => $file)
             {
                 $path = call_user_func_array($callback, [$file[$fileTable->getPathField()]]);
 
-                if (is_file($path) && is_writeable($path) )
+                if (is_file($path) && is_writeable($path))
                 {
                     $res = @!!unlink($path);
                     if ($res)
@@ -3749,6 +3744,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             $this->telegraphQueueMissionManager->logInfo('成功删除文件数量: ' . count($ids));
 
+            //删除文件表记录
             if (count($ids))
             {
                 $fileTable->tableIns()->where([
@@ -3759,6 +3755,10 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                     ],
                 ])->delete();
             }
+
+            //删除 msg 表记录
+            $num = $msgTable->tableIns()->where($msgTable->getFileSizeField(), '>=', $sizeInByte)->delete();
+            $this->telegraphQueueMissionManager->logInfo('删除 msg 表记录: ' . $num);
         }
 
         //删除post表中，一个媒体都没有的文章
