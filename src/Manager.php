@@ -3625,22 +3625,6 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             return $data;
         }
 
-        public function needCreateDetailPageCount(): int
-        {
-            $a         = $this->getPostTable()->isTableCerated();
-            $postCount = $a ? (int)$this->getPostTable()->getCount() : 0;
-
-            $f               = $this->getPagesTable()->isTableCerated();
-            $detailPageCount = $f ? (int)$this->getPagesTable()->tableIns()->where([
-                [
-                    $this->getPagesTable()->getPageTypeField(),
-                    '=',
-                    static::PAGE_DETAIL,
-                ],
-            ])->count() : 0;
-
-            return $postCount - $detailPageCount;
-        }
 
         //根据关键词，删除post表中的文章
         public function deletePostByKeyword(string $keyword, bool $isFullMatch = false): void
@@ -3717,19 +3701,18 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
             $this->telegraphQueueMissionManager->logInfo('待删除文件: ' . count($files));
 
-
             //遍历文件，构造文件路径，删除文件
             $ids = [];
             foreach ($files as $k => $file)
             {
                 $path = call_user_func_array($callback, [$file[$fileTable->getPathField()]]);
+                $ids[] = $id = $file[$fileTable->getPkField()];
 
                 if (is_file($path) && is_writeable($path))
                 {
                     $res = @!!unlink($path);
                     if ($res)
                     {
-                        $ids[] = $id = $file[$fileTable->getPkField()];
                         $this->telegraphQueueMissionManager->logInfo('删除文件成功: ' . $id . '----' . $path);
                     }
                     else
@@ -3743,18 +3726,23 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 }
             }
 
-            $this->telegraphQueueMissionManager->logInfo('成功删除文件数量: ' . count($ids));
+            $this->telegraphQueueMissionManager->logInfo(implode('', [
+                    '查出文件: ' . count($files),
+                    ',成功删除: ' . count($ids),
+                    ',失败个数: ' . count($files) - count($ids),
+                ]));
 
             //删除文件表记录
             if (count($ids))
             {
-                $fileTable->tableIns()->where([
+                $num = $fileTable->tableIns()->where([
                     [
                         $fileTable->getPkField(),
                         'in',
                         $ids,
                     ],
                 ])->delete();
+                $this->telegraphQueueMissionManager->logInfo('删除 file 表记录: ' . $num);
             }
 
             //删除 msg 表记录
@@ -3774,6 +3762,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 $postTable->getContentsField(),
             ]))->select();
 
+            $this->telegraphQueueMissionManager->logInfo('一共文章数量: ' . count($posts));
             foreach ($posts as $k => $post)
             {
                 $gropId  = $post[$postTable->getMediaGroupIdField()];
