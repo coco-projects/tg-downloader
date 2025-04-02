@@ -898,7 +898,8 @@
                      *
                      * --------------*/
 
-                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)->limit(0, 500)
+                    $data = $msgTable->tableIns()->where($this->whereFileStatus2FileMoved)
+                        //->limit(0, 500)
                         ->order($msgTable->getPkField())->select();
                     $data = $data->toArray();
 
@@ -920,7 +921,7 @@
 
                     foreach ($message_group as $group_id => $messages)
                     {
-                        //如果开启严格模式，必须等一个文章所有媒体下载完才能写入post表
+                        //如果开启严格模式，三流程必须一个一个来，不能同时进行
                         if ($this->strictMode)
                         {
                             //这个消息一共应该有几个媒体
