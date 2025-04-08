@@ -308,16 +308,16 @@
         },
         {
             "name": "coco-project/queue",
-            "version": "v1.0.19",
+            "version": "v1.0.20",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/queue.git",
-                "reference": "fcd4913760295cfabbf2bcfaa30cda882b0d8840"
+                "reference": "af185475d0879e4d08f5cad596427203d0b4290a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/queue/zipball/fcd4913760295cfabbf2bcfaa30cda882b0d8840",
-                "reference": "fcd4913760295cfabbf2bcfaa30cda882b0d8840",
+                "url": "https://api.github.com/repos/coco-projects/queue/zipball/af185475d0879e4d08f5cad596427203d0b4290a",
+                "reference": "af185475d0879e4d08f5cad596427203d0b4290a",
                 "shasum": ""
             },
             "require": {
@@ -351,9 +351,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/queue/issues",
-                "source": "https://github.com/coco-projects/queue/tree/v1.0.19"
+                "source": "https://github.com/coco-projects/queue/tree/v1.0.20"
             },
-            "time": "2025-04-08T02:53:35+00:00"
+            "time": "2025-04-08T03:49:30+00:00"
         },
         {
             "name": "coco-project/scanner",
