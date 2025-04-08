@@ -523,16 +523,16 @@
         },
         {
             "name": "coco-project/timer",
-            "version": "v1.0.6",
+            "version": "v1.0.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/coco-projects/timer.git",
-                "reference": "0f04be8e599b3076494789e4f638d00e2f49289f"
+                "reference": "7eb6272184699891dff060a7fc722483e9ea20a3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/coco-projects/timer/zipball/0f04be8e599b3076494789e4f638d00e2f49289f",
-                "reference": "0f04be8e599b3076494789e4f638d00e2f49289f",
+                "url": "https://api.github.com/repos/coco-projects/timer/zipball/7eb6272184699891dff060a7fc722483e9ea20a3",
+                "reference": "7eb6272184699891dff060a7fc722483e9ea20a3",
                 "shasum": ""
             },
             "require": {
@@ -556,9 +556,9 @@
             ],
             "support": {
                 "issues": "https://github.com/coco-projects/timer/issues",
-                "source": "https://github.com/coco-projects/timer/tree/v1.0.6"
+                "source": "https://github.com/coco-projects/timer/tree/v1.0.7"
             },
-            "time": "2025-04-08T02:07:53+00:00"
+            "time": "2025-04-08T03:25:17+00:00"
         },
         {
             "name": "evenement/evenement",
