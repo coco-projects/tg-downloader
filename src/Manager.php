@@ -2935,6 +2935,7 @@
             $postId       = $videoFileInfo[$fileTab->getPostIdField()];
             $mediaGroupId = $videoFileInfo[$fileTab->getMediaGroupIdField()];
             $videoPath    = $videoFileInfo[$fileTab->getPathField()];
+            $videoSize    = $videoFileInfo[$fileTab->getFileSizeField()];
 
             $videoFullPath = call_user_func_array($callback, [$videoPath]);
             if (!is_file($videoFullPath))
@@ -2972,6 +2973,7 @@
             $mission->postId        = $postId;
             $mission->fileId        = $fileId;
             $mission->mediaGroupId  = $mediaGroupId;
+            $mission->videoSize     = $videoSize;
 
             $mission->setParameters([
                 $videoFullPath,
@@ -3017,7 +3019,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             });
 
             $this->telegraphQueueMissionManager->logInfo(implode([
-                'convertM3u8Queue，m3u8 切片路径: ' . $tsFullPath,
+                "convertM3u8Queue，视频大小: ".static::formatBytes($videoSize)."，m3u8 : {$tsFullPath}" ,
             ]));
 
             $this->convertM3u8Queue->addNewMission($mission);
@@ -3034,6 +3036,11 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
             $queue->setIsRetryOnError(true);
             $queue->setMissionProcessor(new CallableMissionProcessor());
 
+            $queue->setOnEachMissionStartExec(function(CallableMission $mission) {
+                $msg = "开始转换 ：【{$mission->videoFullPath}】【".static::formatBytes($mission->videoSize)."】";
+                $this->telegraphQueueMissionManager->logInfo("{$msg}");
+            });
+
             $success = function(CallableMission $mission) {
 
                 /*
@@ -3046,6 +3053,7 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
                 $mission->postId        = $postId;
                 $mission->fileId        = $fileId;
                 $mission->mediaGroupId  = $mediaGroupId;
+                $mission->videoSize     = $videoSize;
 
                 */
 
@@ -3976,5 +3984,24 @@ $r_1080p = (new \Streaming\Representation())->setKiloBitrate(4096)->setResize(19
 
                 return $content;
             };
+        }
+
+        protected static function formatBytes($bytes): string
+        {
+            $units = [
+                'B',
+                'KB',
+                'MB',
+                'GB',
+                'TB',
+            ];
+
+            $unit = 0;
+            while ($bytes >= 1024 && $unit < count($units) - 1) {
+                $bytes /= 1024;
+                $unit++;
+            }
+
+            return sprintf("%.2f %s", $bytes, $units[$unit]);
         }
     }
